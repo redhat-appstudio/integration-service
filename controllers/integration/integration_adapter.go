@@ -137,6 +137,142 @@ func (a *Adapter) getAllApplicationSnapshots() (*[]appstudioshared.ApplicationSn
 	return &applicationSnapshots.Items, nil
 }
 
+func (a *Adapter) getAllEnvironments() (*[]appstudioshared.Environment, error) {
+
+	environmentList := &appstudioshared.EnvironmentList{}
+	opts := []client.ListOption{
+		client.InNamespace(a.application.Namespace),
+	}
+	err := a.client.List(a.context, environmentList, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &environmentList.Items, err
+}
+
+func (a *Adapter) findAvailabeEnvironments() (*[]appstudioshared.Environment, error) {
+	allEnvironments, err := a.getAllEnvironments()
+	if err != nil {
+		return nil, err
+	}
+	availableEnvironments := []appstudioshared.Environment{}
+	for _, environment := range *allEnvironments {
+		if environment.Spec.ParentEnvironment == "" {
+			for _, tag := range environment.Spec.Tags {
+				if tag == "ephemeral" {
+					break
+				}
+			}
+			availableEnvironments = append(availableEnvironments, environment)
+		}
+	}
+	return &availableEnvironments, nil
+}
+
+func (a *Adapter) findExistingApplicationSnapshotEnvironmentBinding(environmentName string) (*appstudioshared.ApplicationSnapshotEnvironmentBinding, error) {
+	applicationSnapshotEnvironmentBindingList := &appstudioshared.ApplicationSnapshotEnvironmentBindingList{}
+	opts := []client.ListOption{
+		client.InNamespace(a.application.Namespace),
+		client.MatchingFields{"spec.application": a.application.Name},
+		client.MatchingFields{"spec.environment": environmentName},
+	}
+
+	err := a.client.List(a.context, applicationSnapshotEnvironmentBindingList, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &applicationSnapshotEnvironmentBindingList.Items[0], nil
+}
+
+func (a *Adapter) EnsureApplicationSnapshotEnvironmentBindingExist() (results.OperationResult, error) {
+	availableEnvironments, err := a.findAvailabeEnvironments()
+	if err != nil {
+		return results.RequeueWithError(err)
+	}
+
+	applicationSnapshot, err := a.findMatchingApplicationSnapshot()
+	if err != nil {
+		return results.RequeueWithError(err)
+	}
+
+	components, err := a.getAllApplicationComponents(a.application)
+
+	if err != nil {
+		return results.RequeueWithError(err)
+	}
+	for _, availableEnvironment := range *availableEnvironments {
+		bindingName := a.application.Name + "-" + availableEnvironment.Name + "-" + "binding"
+		applicationSnapshotEnvironmentBinding, _ := a.findExistingApplicationSnapshotEnvironmentBinding(availableEnvironment.Spec.DisplayName)
+		if applicationSnapshotEnvironmentBinding != nil {
+			applicationSnapshotEnvironmentBinding.Spec.Snapshot = applicationSnapshot.Name
+			applicationSnapshotComponents := a.getApplicationSnapshotComponents(*components)
+			applicationSnapshotEnvironmentBinding.Spec.Components = *applicationSnapshotComponents
+			err := a.client.Update(a.context, applicationSnapshotEnvironmentBinding)
+			if err != nil {
+				a.logger.Error(err, "Failed to update ApplicationSnapshotEnvironmentBinding",
+					"ApplicationSnapshotEnvironmentBindingName.Application", applicationSnapshotEnvironmentBinding.Spec.Application,
+					"ApplicationSnapshotEnvironmentBindingName.Environment", applicationSnapshotEnvironmentBinding.Spec.Environment,
+					"ApplicationSnapshotEnvironmentBindingName.Snapshot", applicationSnapshotEnvironmentBinding.Spec.Snapshot)
+				return results.RequeueOnErrorOrStop(a.updateStatus())
+			}
+		} else {
+			applicationSnapshotEnvironmentBinding, err := a.CreateApplicationSnapshotEnvironmentBinding(
+				bindingName, a.application.Namespace, a.application.Name,
+				availableEnvironment.Name,
+				applicationSnapshot, *components)
+
+			if err != nil {
+				a.logger.Error(err, "Failed to create ApplicationSnapshotEnvironmentBinding",
+					"ApplicationSnapshotEnvironmentBindingName.Application", applicationSnapshotEnvironmentBinding.Spec.Application,
+					"ApplicationSnapshotEnvironmentBindingName.Environment", applicationSnapshotEnvironmentBinding.Spec.Environment,
+					"ApplicationSnapshotEnvironmentBindingName.Snapshot", applicationSnapshotEnvironmentBinding.Spec.Snapshot)
+				return results.RequeueOnErrorOrStop(a.updateStatus())
+			}
+
+		}
+		a.logger.Info("Created/updated ApplicationSnapshotEnvironmentBinding",
+			"ApplicationSnapshotEnvironmentBindingName.Application", applicationSnapshotEnvironmentBinding.Spec.Application,
+			"ApplicationSnapshotEnvironmentBindingName.Environment", applicationSnapshotEnvironmentBinding.Spec.Environment,
+			"ApplicationSnapshotEnvironmentBindingName.Snapshot", applicationSnapshotEnvironmentBinding.Spec.Snapshot)
+	}
+	return results.ContinueProcessing()
+}
+
+func (a *Adapter) getApplicationSnapshotComponents(components []hasv1alpha1.Component) *[]appstudioshared.BindingComponent {
+	bindingComponents := []appstudioshared.BindingComponent{}
+	for _, component := range components {
+		bindingComponents = append(bindingComponents, appstudioshared.BindingComponent{
+			Name: component.Spec.ComponentName,
+			Configuration: appstudioshared.BindingComponentConfiguration{
+				Replicas: component.Spec.Replicas,
+			},
+		})
+	}
+	return &bindingComponents
+}
+
+func (a *Adapter) CreateApplicationSnapshotEnvironmentBinding(bindingName string, namespace string, applicationName string, environmentName string, appSnapshot *appstudioshared.ApplicationSnapshot, components []hasv1alpha1.Component) (*appstudioshared.ApplicationSnapshotEnvironmentBinding, error) {
+	bindingComponents := a.getApplicationSnapshotComponents(components)
+
+	applicationSnapshotEnvironmentBinding := &appstudioshared.ApplicationSnapshotEnvironmentBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      bindingName,
+			Namespace: namespace,
+		},
+		Spec: appstudioshared.ApplicationSnapshotEnvironmentBindingSpec{
+			Application: applicationName,
+			Environment: environmentName,
+			Snapshot:    appSnapshot.Name,
+			Components:  *bindingComponents,
+		},
+	}
+
+	err := a.client.Create(a.context, applicationSnapshotEnvironmentBinding)
+	return applicationSnapshotEnvironmentBinding, err
+}
+
 // compareApplicationSnapshots compares two ApplicationSnapshots and returns boolean true if their images match exactly.
 func (a *Adapter) compareApplicationSnapshots(expectedApplicationSnapshot *appstudioshared.ApplicationSnapshot, foundApplicationSnapshot *appstudioshared.ApplicationSnapshot) bool {
 	snapshotsHaveSameNumberOfImages :=
@@ -255,7 +391,7 @@ func (a *Adapter) getImagePullSpecFromPipelineRun(pipelineRun *tektonv1beta1.Pip
 // component and application. In case the ApplicationSnapshot can't be created, an error will be returned.
 func (a *Adapter) prepareApplicationSnapshotForPipelineRun(pipelineRun *tektonv1beta1.PipelineRun,
 	component *hasv1alpha1.Component, application *hasv1alpha1.Application) (*appstudioshared.ApplicationSnapshot, error) {
-	applicationComponents, err := a.getAllApplicationComponents(application)
+	applicationComponents, err := a.getAllApplicationComponents(a.application)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get all Application Components for Application %s", a.application.Name)
 	}

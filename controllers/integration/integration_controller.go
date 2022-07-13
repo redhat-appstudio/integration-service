@@ -128,6 +128,7 @@ func (r *Reconciler) getApplicationFromComponent(context context.Context, compon
 type AdapterInterface interface {
 	EnsureApplicationSnapshotExists() (results.OperationResult, error)
 	EnsureAllReleasesExist() (results.OperationResult, error)
+	EnsureApplicationSnapshotEnvironmentBindingExist() (results.OperationResult, error)
 }
 
 // ReconcileOperation defines the syntax of functions invoked by the ReconcileHandler
@@ -139,6 +140,7 @@ func (r *Reconciler) ReconcileHandler(adapter AdapterInterface) (ctrl.Result, er
 	operations := []ReconcileOperation{
 		adapter.EnsureApplicationSnapshotExists,
 		adapter.EnsureAllReleasesExist,
+		adapter.EnsureApplicationSnapshotEnvironmentBindingExist,
 	}
 
 	for _, operation := range operations {
@@ -199,6 +201,26 @@ func setupApplicationSnapshotCache(mgr ctrl.Manager) error {
 		"spec.application", applicationSnapshotIndexFunc)
 }
 
+// setupEnvironmentCache adds a new index field to be able to search Environments by Application.
+func setupEnvironmentCache(mgr ctrl.Manager) error {
+	environmentIndexFunc := func(obj client.Object) []string {
+		return []string{obj.(*appstudioshared.ApplicationSnapshotEnvironmentBinding).Spec.Application}
+	}
+
+	return mgr.GetCache().IndexField(context.Background(), &appstudioshared.ApplicationSnapshotEnvironmentBinding{},
+		"spec.application", environmentIndexFunc)
+}
+
+// setupEnvironmentCache adds a new index field to be able to search Applications by Environment.
+func setupApplicationCache(mgr ctrl.Manager) error {
+	applicationIndexFunc := func(obj client.Object) []string {
+		return []string{obj.(*appstudioshared.ApplicationSnapshotEnvironmentBinding).Spec.Environment}
+	}
+
+	return mgr.GetCache().IndexField(context.Background(), &appstudioshared.ApplicationSnapshotEnvironmentBinding{},
+		"spec.environment", applicationIndexFunc)
+}
+
 // setupControllerWithManager sets up the controller with the Manager which monitors new build PipelineRuns and filters
 // out status updates.
 func setupControllerWithManager(manager ctrl.Manager, reconciler *Reconciler) error {
@@ -215,6 +237,14 @@ func setupControllerWithManager(manager ctrl.Manager, reconciler *Reconciler) er
 		return err
 	}
 	err = setupApplicationSnapshotCache(manager)
+	if err != nil {
+		return err
+	}
+	err = setupEnvironmentCache(manager)
+	if err != nil {
+		return err
+	}
+	err = setupApplicationCache(manager)
 	if err != nil {
 		return err
 	}
