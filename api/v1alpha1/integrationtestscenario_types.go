@@ -32,6 +32,8 @@ type IntegrationTestScenarioSpec struct {
 	// Tekton Bundle where to find the pipeline
 	// +required
 	Bundle string `json:"bundle"`
+	// If the pipeline is optional and can be ignored by gating
+	Optional string `json:"optional"`
 	// Params to pass to the pipeline
 	Params []PipelineParameter `json:"params,omitempty"`
 	// Environment that will be utilized by the test pipeline
