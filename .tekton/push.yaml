@@ -1,0 +1,32 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  name: integration-service-on-push
+  annotations:
+    pipelinesascode.tekton.dev/on-event: "[push]" 
+    pipelinesascode.tekton.dev/on-target-branch: "[main]"
+    pipelinesascode.tekton.dev/max-keep-runs: "5"
+spec:
+  params:
+    - name: git-url
+      value: "{{ repo_url }}"
+    - name: revision
+      value: "{{ revision }}"
+    - name: output-image
+      value: 'quay.io/redhat-appstudio/integration-service:{{ revision }}'
+    - name: path-context
+      value: .
+    - name: dockerfile
+      value: Dockerfile
+    - name: infra-deployment-update-script
+      value: |
+        sed -i -e 's|\(https://github.com/redhat-appstudio/integration-service/config/default?ref=\)\(.*\)|\1{{ revision }}|' -e 's/\(newTag: \).*/\1{{ revision }}/' components/integration/kustomization.yaml
+  pipelineRef:
+    name: docker-build
+    bundle: quay.io/redhat-appstudio/hacbs-core-service-templates-bundle:latest
+  workspaces: 
+   - name: workspace 
+     persistentVolumeClaim: 
+        claimName: app-studio-default-workspace 
+     subPath: integration-service-push-{{ revision }}
