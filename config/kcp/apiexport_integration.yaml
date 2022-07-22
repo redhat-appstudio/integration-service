@@ -1,0 +1,9 @@
+# This file is generated from CRDs by ./hack/generate-kcp-api.sh script.
+# Please do not modify!
+apiVersion: apis.kcp.dev/v1alpha1
+kind: APIExport
+metadata:
+  name: inetegration
+spec:
+  latestResourceSchemas:
+    - v202207220324.integrationtestscenarios.appstudio.redhat.com

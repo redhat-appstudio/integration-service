@@ -1,0 +1,3 @@
+resources:
+  - apiexport_integration.yaml
+  - apiresourceschema_integration.yaml
