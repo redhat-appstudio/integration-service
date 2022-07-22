@@ -1,0 +1,112 @@
+# This file is generated from CRDs by ./hack/generate-kcp-api.sh script.
+# Please do not modify!
+apiVersion: apis.kcp.dev/v1alpha1
+kind: APIResourceSchema
+metadata:
+  creationTimestamp: null
+  name: v202207220324.integrationtestscenarios.appstudio.redhat.com
+spec:
+  group: appstudio.redhat.com
+  names:
+    kind: IntegrationTestScenario
+    listKind: IntegrationTestScenarioList
+    plural: integrationtestscenarios
+    singular: integrationtestscenario
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.application
+      name: Application
+      type: string
+    name: v1alpha1
+    schema:
+      description: IntegrationTestScenario is the Schema for the integrationtestscenarios
+        API
+      properties:
+        apiVersion:
+          description: 'APIVersion defines the versioned schema of this representation
+            of an object. Servers should convert recognized schemas to the latest
+            internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          type: string
+        kind:
+          description: 'Kind is a string value representing the REST resource this
+            object represents. Servers may infer this from the endpoint the client
+            submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          type: string
+        metadata:
+          type: object
+        spec:
+          description: IntegrationTestScenarioSpec defines the desired state of IntegrationScenario
+          properties:
+            application:
+              description: Application that's associated with the IntegrationTestScenario
+              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+              type: string
+            bundle:
+              description: Tekton Bundle where to find the pipeline
+              type: string
+            contexts:
+              description: Contexts where this IntegrationTestScenario can be applied
+              items:
+                description: TestContext contains the name and values of a Test context
+                properties:
+                  description:
+                    type: string
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              type: array
+            environment:
+              description: Environment that will be utilized by the test pipeline
+              properties:
+                name:
+                  type: string
+                params:
+                  items:
+                    type: string
+                  type: array
+                type:
+                  type: string
+              required:
+              - name
+              - params
+              - type
+              type: object
+            params:
+              description: Params to pass to the pipeline
+              items:
+                description: PipelineParameter contains the name and values of a Tekton
+                  Pipeline parameter
+                properties:
+                  name:
+                    type: string
+                  value:
+                    items:
+                      type: string
+                    type: array
+                required:
+                - name
+                - value
+                type: object
+              type: array
+            pipeline:
+              description: Release Tekton Pipeline to execute
+              type: string
+          required:
+          - application
+          - bundle
+          - pipeline
+          type: object
+        status:
+          description: IntegrationTestScenarioStatus defines the observed state of
+            IntegrationTestScenario
+          type: object
+      type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+
+---
