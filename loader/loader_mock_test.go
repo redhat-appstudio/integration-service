@@ -201,21 +201,6 @@ var _ = Describe("Release Adapter", Ordered, func() {
 		})
 	})
 
-	Context("When calling FindAvailableDeploymentTargetClass", func() {
-		It("returns deploymentTargetClassre source and error from the context", func() {
-			dtcls := &applicationapiv1alpha1.DeploymentTargetClass{}
-			mockContext := toolkit.GetMockedContext(ctx, []toolkit.MockData{
-				{
-					ContextKey: DeploymentTargetClassContextKey,
-					Resource:   dtcls,
-				},
-			})
-			resource, err := loader.FindAvailableDeploymentTargetClass(nil, mockContext)
-			Expect(resource).To(Equal(dtcls))
-			Expect(err).To(BeNil())
-		})
-	})
-
 	Context("When calling GetAllIntegrationTestScenariosForApplication", func() {
 		It("returns all integrationTestScenario and error from the context", func() {
 			scenarios := []v1beta1.IntegrationTestScenario{}

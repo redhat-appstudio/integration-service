@@ -10,13 +10,11 @@ flowchart TD
 
   predicate((PREDICATE: <br>Snapshot got created OR <br> changed to Finished OR <br> re-run label added AND <br> it's not restored from backup))
 
-  %%%%%%%%%%%%%%%%%%%%%%% Drawing EnsureStaticIntegrationPipelineRunsExist() function
+  %%%%%%%%%%%%%%%%%%%%%%% Drawing EnsureIntegrationPipelineRunsExist() function
 
   %% Node definitions
   ensure1(Process further if: Snapshot testing <br>is not finished yet)
   are_there_any_ITS{"Are there any <br>IntegrationTestScenario <br>present for the given <br>Application?"}
-  does_ITS_has_env_defined{Does the <br>IntegrationTestScenario <br>has any environment <br>defined in it?}
-  skip_creating_test_PLR(Skip creating Test PLR for this ITS,<br> as it will be created by binding controller)
   create_new_test_PLR(<b>Create a new Test PipelineRun</b> for each <br>of the above ITS, if it doesn't exists already)
   mark_snapshot_InProgress(<b>Mark</b> Snapshot's Integration-testing <br>status as 'InProgress')
   fetch_all_required_ITS("Fetch all the required <br>(non-optional) IntegrationTestScenario <br>for the given Application")
@@ -27,13 +25,10 @@ flowchart TD
   continue_processing1(Controller continues processing...)
 
   %% Node connections
-  predicate                 ---->    |"EnsureStaticIntegrationPipelineRunsExist()"|ensure1
+  predicate                 ---->    |"EnsureIntegrationPipelineRunsExist()"|ensure1
   ensure1                   -->      are_there_any_ITS
-  are_there_any_ITS         --Yes--> does_ITS_has_env_defined
+  are_there_any_ITS         --Yes--> create_new_test_PLR
   are_there_any_ITS         --No-->  fetch_all_required_ITS
-  does_ITS_has_env_defined  --Yes--> skip_creating_test_PLR
-  does_ITS_has_env_defined  --No-->  create_new_test_PLR
-  skip_creating_test_PLR    -->      fetch_all_required_ITS
   create_new_test_PLR       -->      mark_snapshot_InProgress
   mark_snapshot_InProgress  -->      fetch_all_required_ITS
   fetch_all_required_ITS    -->      encountered_error1
@@ -84,32 +79,6 @@ flowchart TD
   mark_snapshot_autoreleased -->  continue_processing3
   encountered_error32    --Yes--> mark_snapshot_Invalid3
 
-
-  %%%%%%%%%%%%%%%%%%%%%%% Drawing EnsureCreationOfEphemeralEnvironments() function
-
-  %% Node definitions
-  ensure4(Process further if: Snapshot testing <br>is not finished yet)
-  step1_fetch_all_ITS(Step 1: Fetch ALL the IntegrationTestScenario <br>for the given Application)
-  step2_fetch_all_env(Step 2: Fetch ALL the Environments <br>present in the same namespace)
-  init_test_statuses_snapshot("Initialize test statuses in snapshot.<br>Remove deleted scenarios from snapshot test annotation")
-  select_ITS_with_env_defined(For each of the IntegrationTestScenario from Step 1, <br>select the ones that have .spec.environment field defined. <br>And process them in the next steps)
-  does_env_already_exists{"Is there any <br>environment (from Step 2), <br>that contains labels with names <br>of current Snapshot and <br>IntegrationTestScenario?"}
-  continue_processing4(Controller continues processing...)
-  copy_and_create_eph_env(For each IntegrationTestScenario, <br> copy the existing env definition from <br>their spec.environment field and use it to <br><b>create a new ephemeral environment</b>)
-  create_SEB_for_eph_env(<b>Create a SnapshotEnvironmentBinding</b> <br>for the given Snapshot and the <br>above ephemeral environment)
-
-  %% Node connections
-  predicate                   ---->    |"EnsureCreationOfEphemeralEnvironments()"|ensure4
-  ensure4                     -->      step1_fetch_all_ITS
-  step1_fetch_all_ITS         -->      step2_fetch_all_env
-  step2_fetch_all_env         -->      init_test_statuses_snapshot
-  init_test_statuses_snapshot -->      select_ITS_with_env_defined
-  select_ITS_with_env_defined -->      does_env_already_exists
-  does_env_already_exists     --No-->  copy_and_create_eph_env
-  does_env_already_exists     --Yes--> continue_processing4
-  copy_and_create_eph_env     -->      create_SEB_for_eph_env
-
-
   %%%%%%%%%%%%%%%%%%%%%%% Drawing EnsureSnapshotEnvironmentBindingExists() function
 
   %% Node definitions
@@ -142,26 +111,17 @@ flowchart TD
   %% Node definitions
   ensure6(Process further if: Snapshot has re-run label added by a user)
   if_scenario_exist{Does scenario requested by user exist?}
-  if_scenario_is_for_ephmeral_env{Should scenario run in ephemeral environment?}
-  if_source_env_not_found{Source environment to copy from is not found?}
   remove_rerun_label(Remove rerun label)
-  remove_rerun_label_and_stop(Remove rerun label AND stop processing of request)
   rerun_static_env(Rerun static env pipeline for scenario)
-  rerun_ephemeral_env(Create ephemeral SEB to run scenario)
   continue_processing6(Controller continues processing...)
 
   %% Node connections
   predicate                       ---->    |"EnsureRerunPipelineRunsExist()"|ensure6
   ensure6                         -->      if_scenario_exist
-  if_scenario_exist               --Yes--> if_scenario_is_for_ephmeral_env
+  if_scenario_exist               --Yes--> rerun_static_env
   if_scenario_exist               --No-->  remove_rerun_label
   remove_rerun_label              ---->    continue_processing6
-  if_scenario_is_for_ephmeral_env --Yes--> rerun_ephemeral_env
-  if_scenario_is_for_ephmeral_env --No-->  rerun_static_env
   rerun_static_env                ---->    remove_rerun_label
-  rerun_ephemeral_env             ---->    if_source_env_not_found
-  if_source_env_not_found         --Yes--> remove_rerun_label_and_stop
-  if_source_env_not_found         --No-->  remove_rerun_label
 
 
   %% Assigning styles to nodes

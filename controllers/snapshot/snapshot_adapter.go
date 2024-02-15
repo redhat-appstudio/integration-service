@@ -76,10 +76,10 @@ func NewAdapter(snapshot *applicationapiv1alpha1.Snapshot, application *applicat
 	}
 }
 
-func scenariosNamesToList(integrationTestScenarions *[]v1beta1.IntegrationTestScenario) *[]string {
+func scenariosNamesToList(integrationTestScenarios *[]v1beta1.IntegrationTestScenario) *[]string {
 	// transform list of structs into list of strings
-	result := make([]string, 0, len(*integrationTestScenarions))
-	for _, v := range *integrationTestScenarions {
+	result := make([]string, 0, len(*integrationTestScenarios))
+	for _, v := range *integrationTestScenarios {
 		result = append(result, v.Name)
 	}
 	return &result
@@ -126,41 +126,16 @@ func (a *Adapter) EnsureRerunPipelineRunsExist() (controller.OperationResult, er
 	}
 	testStatuses.ResetStatus(scenarioName)
 
-	if shouldScenarioRunInEphemeralEnv(integrationTestScenario) {
-		allEnvironments, err := a.loader.GetAllEnvironments(a.client, a.context, a.application)
-		if err != nil {
-			a.logger.Error(err, "Failed to get all environments.")
-			return controller.RequeueWithError(err)
-		}
-
-		_, err = a.ensureEphemeralEnvironmentForScenarioExists(integrationTestScenario, testStatuses, allEnvironments, ScenarioOptions{IsReRun: true})
-		if err != nil {
-			if h.IsEnvironmentNotInNamespaceError(err) {
-				a.logger.Error(err, "environment doesn't exist in the same namespace as integrationScenario at all, try again after creating environment",
-					"integrationTestScenario.Name", integrationTestScenario.Name)
-				// remove label to prevent indefinite failures, users must restart test manually again
-				if err = gitops.RemoveIntegrationTestRerunLabel(a.client, a.context, a.snapshot); err != nil {
-					return controller.RequeueWithError(err)
-				}
-				return controller.StopProcessing()
-			}
-			return controller.RequeueWithError(fmt.Errorf("failed to ensure existence of the environment for scenario %s: %w", integrationTestScenario.Name, err))
-		}
-
-	} else {
-
-		pipelineRun, err := a.createIntegrationPipelineRun(a.application, integrationTestScenario, a.snapshot)
-		if err != nil {
-			return a.HandlePipelineCreationError(err, integrationTestScenario, testStatuses)
-		}
-		testStatuses.UpdateTestStatusIfChanged(
-			integrationTestScenario.Name, intgteststat.IntegrationTestStatusInProgress,
-			fmt.Sprintf("IntegrationTestScenario pipeline '%s' has been created", pipelineRun.Name))
-		if err = testStatuses.UpdateTestPipelineRunName(integrationTestScenario.Name, pipelineRun.Name); err != nil {
-			// it doesn't make sense to restart reconciliation here, it will be eventually updated by integrationpipeline adapter
-			a.logger.Error(err, "Failed to update pipelinerun name in test status")
-		}
-
+	pipelineRun, err := a.createIntegrationPipelineRun(a.application, integrationTestScenario, a.snapshot)
+	if err != nil {
+		return a.HandlePipelineCreationError(err, integrationTestScenario, testStatuses)
+	}
+	testStatuses.UpdateTestStatusIfChanged(
+		integrationTestScenario.Name, intgteststat.IntegrationTestStatusInProgress,
+		fmt.Sprintf("IntegrationTestScenario pipeline '%s' has been created", pipelineRun.Name))
+	if err = testStatuses.UpdateTestPipelineRunName(integrationTestScenario.Name, pipelineRun.Name); err != nil {
+		// it doesn't make sense to restart reconciliation here, it will be eventually updated by integrationpipeline adapter
+		a.logger.Error(err, "Failed to update pipelinerun name in test status")
 	}
 
 	if err = gitops.WriteIntegrationTestStatusesIntoSnapshot(a.snapshot, testStatuses, a.client, a.context); err != nil {
@@ -179,11 +154,9 @@ func (a *Adapter) EnsureRerunPipelineRunsExist() (controller.OperationResult, er
 	return controller.ContinueProcessing()
 }
 
-// EnsureStaticIntegrationPipelineRunsExist is an operation that will ensure that all Integration pipeline runs
+// EnsureIntegrationPipelineRunsExist is an operation that will ensure that all Integration pipeline runs
 // associated with the Snapshot and the Application's IntegrationTestScenarios exist.
-// Creates integration pipeline runs for scenarios in static environments (i.e. scenarios which doesn't require
-// deploying application into ephemeral environemnt, like static checks - enterprise contract)
-func (a *Adapter) EnsureStaticIntegrationPipelineRunsExist() (controller.OperationResult, error) {
+func (a *Adapter) EnsureIntegrationPipelineRunsExist() (controller.OperationResult, error) {
 	if gitops.HaveAppStudioTestsFinished(a.snapshot) {
 		a.logger.Info("The Snapshot has finished testing.")
 		return controller.ContinueProcessing()
@@ -201,10 +174,18 @@ func (a *Adapter) EnsureStaticIntegrationPipelineRunsExist() (controller.Operati
 			"Application.Name", a.application.Name,
 			"IntegrationTestScenarios", len(*integrationTestScenarios))
 
+		// Initialize status of all integration tests
+		// This is starting place where integration tests are being initialized
 		testStatuses, err := gitops.NewSnapshotIntegrationTestStatusesFromSnapshot(a.snapshot)
 		if err != nil {
 			return controller.RequeueWithError(err)
 		}
+		testStatuses.InitStatuses(scenariosNamesToList(integrationTestScenarios))
+		err = gitops.WriteIntegrationTestStatusesIntoSnapshot(a.snapshot, testStatuses, a.client, a.context)
+		if err != nil {
+			return controller.RequeueWithError(err)
+		}
+
 		defer func() {
 			// Try to update status of test if something failed, because test loop can stop prematurely on error,
 			// we should record current status.
@@ -219,11 +200,6 @@ func (a *Adapter) EnsureStaticIntegrationPipelineRunsExist() (controller.Operati
 
 		for _, integrationTestScenario := range *integrationTestScenarios {
 			integrationTestScenario := integrationTestScenario //G601
-			if shouldScenarioRunInEphemeralEnv(&integrationTestScenario) {
-				// integration pipeline runs for scenarios which need an ephemeral environment are handled in EnsureCreationOfEphemeralEnvironments()
-				a.logger.Info("IntegrationTestScenario has environment defined, skipping creation of pipelinerun.", "IntegrationTestScenario", integrationTestScenario)
-				continue
-			}
 			// Check if an existing integration pipelineRun is registered in the Snapshot's status
 			// We rely on this because the actual pipelineRun CR may have been pruned by this point
 			integrationTestScenarioStatus, ok := testStatuses.GetScenarioStatus(integrationTestScenario.Name)
@@ -271,82 +247,6 @@ func (a *Adapter) EnsureStaticIntegrationPipelineRunsExist() (controller.Operati
 		a.logger.LogAuditEvent("Snapshot marked as successful. No required IntegrationTestScenarios found, skipped testing",
 			a.snapshot, h.LogActionUpdate,
 			"snapshot.Status", a.snapshot.Status)
-	}
-
-	return controller.ContinueProcessing()
-}
-
-// EnsureCreationOfEphemeralEnvironments makes sure that all ephemeral envrionments that were requested via
-// IntegrationTestScenarios get created, in case that environment is already created, provides
-// a message about this fact
-func (a *Adapter) EnsureCreationOfEphemeralEnvironments() (controller.OperationResult, error) {
-	if gitops.HaveAppStudioTestsFinished(a.snapshot) {
-		a.logger.Info("The Snapshot has finished testing.")
-		return controller.ContinueProcessing()
-	}
-
-	integrationTestScenarios, err := a.loader.GetAllIntegrationTestScenariosForApplication(a.client, a.context, a.application)
-
-	if err != nil {
-		a.logger.Error(err, "Failed to get Integration test scenarios for the following application")
-		return controller.RequeueWithError(err)
-	}
-	if integrationTestScenarios == nil {
-		a.logger.Info("No integration test scenario found for Application")
-		return controller.ContinueProcessing()
-	}
-
-	// Initialize status of all integration tests
-	// This is starting place where integration tests are being initialized
-	testStatuses, err := gitops.NewSnapshotIntegrationTestStatusesFromSnapshot(a.snapshot)
-	if err != nil {
-		return controller.RequeueWithError(err)
-	}
-	testStatuses.InitStatuses(scenariosNamesToList(integrationTestScenarios))
-	err = gitops.WriteIntegrationTestStatusesIntoSnapshot(a.snapshot, testStatuses, a.client, a.context)
-	if err != nil {
-		return controller.RequeueWithError(err)
-	}
-
-	allEnvironments, err := a.loader.GetAllEnvironments(a.client, a.context, a.application)
-	if err != nil {
-		a.logger.Error(err, "Failed to get all environments.")
-		return controller.RequeueWithError(err)
-	}
-
-	for _, integrationTestScenario := range *integrationTestScenarios {
-		integrationTestScenario := integrationTestScenario //G601
-		if !shouldScenarioRunInEphemeralEnv(&integrationTestScenario) {
-			continue
-		}
-
-		_, err = a.ensureEphemeralEnvironmentForScenarioExists(&integrationTestScenario, testStatuses, allEnvironments, ScenarioOptions{})
-		if err != nil {
-			if h.IsEnvironmentNotInNamespaceError(err) {
-				a.logger.Error(err, "environment doesn't exist in the same namespace as integrationScenario at all, try again after creating environment",
-					"integrationTestScenario.Name", integrationTestScenario.Name)
-				return controller.StopProcessing()
-			}
-			if clienterrors.IsInvalid(err) {
-
-				if !gitops.IsSnapshotMarkedAsFailed(a.snapshot) {
-					errKind, errName := GetDetailsFromStatusError(err)
-					a.logger.Error(err, fmt.Sprintf("Resource %s (%s) referenced by integrationTestScenario is invalid", errName, errKind), "integrationTestScenario.Name", integrationTestScenario.Name)
-					err = gitops.MarkSnapshotAsFailed(a.client, a.context, a.snapshot, fmt.Sprintf("Resource %s (%s) associated with integrationTestScenario %s is invalid: %s.", errName, errKind, integrationTestScenario.Name, err))
-					if err != nil {
-						a.logger.Error(err, "Failed to Update Snapshot status")
-						return controller.RequeueWithError(err)
-					}
-					return controller.StopProcessing()
-				}
-			}
-			return controller.RequeueWithError(fmt.Errorf("failed to ensure existence of the environment for scenario %s: %w", integrationTestScenario.Name, err))
-		}
-	}
-
-	err = gitops.WriteIntegrationTestStatusesIntoSnapshot(a.snapshot, testStatuses, a.client, a.context)
-	if err != nil {
-		return controller.RequeueWithError(err)
 	}
 
 	return controller.ContinueProcessing()
@@ -541,110 +441,6 @@ func (a *Adapter) EnsureSnapshotEnvironmentBindingExist() (controller.OperationR
 	return controller.ContinueProcessing()
 }
 
-// getExistingEnvironmentForScenario returns environment created for the given scenario if exists
-func (a *Adapter) getExistingEnvironmentForScenario(integrationTestScenario *v1beta1.IntegrationTestScenario, allEnvironments *[]applicationapiv1alpha1.Environment) (*applicationapiv1alpha1.Environment, bool) {
-	for _, environment := range *allEnvironments {
-		environment := environment //G601
-		if metadata.HasLabelWithValue(&environment, gitops.SnapshotLabel, a.snapshot.Name) && metadata.HasLabelWithValue(&environment, gitops.SnapshotTestScenarioLabel, integrationTestScenario.Name) {
-			return &environment, true
-		}
-	}
-	return nil, false
-}
-
-// createEnvironmentBindingForScenario creates SnapshotEnvironmentBinding for the given test scenario and snapshot
-func (a *Adapter) createEnvironmentBindingForScenario(integrationTestScenario *v1beta1.IntegrationTestScenario, environment *applicationapiv1alpha1.Environment, scenarioOpts ScenarioOptions) (*applicationapiv1alpha1.SnapshotEnvironmentBinding, error) {
-	extraLabels := map[string]string{gitops.SnapshotTestScenarioLabel: integrationTestScenario.Name}
-
-	if scenarioOpts.IsReRun {
-		extraLabels[gitops.SnapshotIntegrationTestRun] = integrationTestScenario.Name
-	}
-
-	binding, err := a.createSnapshotEnvironmentBindingForSnapshot(a.application, environment, a.snapshot, extraLabels)
-	if err != nil {
-		a.logger.Error(err, "Failed to create SnapshotEnvironmentBinding for snapshot",
-			"snapshot", a.snapshot.Name,
-			"environment.Name", environment.Name,
-			"snapshot.Spec.Components", a.snapshot.Spec.Components)
-
-		return nil, fmt.Errorf("failed to create SnapshotEnvironmentBinding: %w", err)
-	}
-	a.logger.LogAuditEvent("A snapshotEnvironmentbinding is created", binding, h.LogActionAdd,
-		"integrationTestScenario.Name", integrationTestScenario.Name)
-
-	return binding, nil
-}
-
-// ensureEphemeralEnvironmentForScenarioExists creates or return existing epehemeral environment for the given test scenario
-func (a *Adapter) ensureEphemeralEnvironmentForScenarioExists(integrationTestScenario *v1beta1.IntegrationTestScenario, testStatuses *intgteststat.SnapshotIntegrationTestStatuses, allEnvironments *[]applicationapiv1alpha1.Environment, scenarioOpts ScenarioOptions) (*applicationapiv1alpha1.SnapshotEnvironmentBinding, error) {
-
-	var (
-		environment *applicationapiv1alpha1.Environment
-		err         error
-	)
-	// environemnt for snapshot
-	environment, ok := a.getExistingEnvironmentForScenario(integrationTestScenario, allEnvironments)
-	if !ok {
-		// environment doesn't exist, we have to create a new one
-		existingEnv := findEnvironmentFromAllEnvironmentsByName(allEnvironments, integrationTestScenario.Spec.Environment.Name)
-		if existingEnv == nil {
-			err := h.NewEnvironmentNotInNamespaceError(integrationTestScenario.Spec.Environment.Name, integrationTestScenario.Namespace)
-			testStatuses.UpdateTestStatusIfChanged(
-				integrationTestScenario.Name, intgteststat.IntegrationTestStatusEnvironmentProvisionError,
-				fmt.Sprintf("Creation of copied ephemeral environment failed: %s. Try again after creating environment.", err))
-			a.writeIntegrationTestStatusAtError(testStatuses)
-			return nil, err
-		}
-		//create an ephemeral copy env of existing environment
-		environment, err = a.createCopyOfExistingEnvironment(existingEnv, a.snapshot.Namespace, integrationTestScenario, a.snapshot, a.application)
-
-		if err != nil {
-			a.logger.Error(err, "Copying of environment failed")
-			testStatuses.UpdateTestStatusIfChanged(
-				integrationTestScenario.Name, intgteststat.IntegrationTestStatusEnvironmentProvisionError,
-				fmt.Sprintf("Creation of ephemeral environment failed: %s", err))
-			a.writeIntegrationTestStatusAtError(testStatuses)
-			return nil, fmt.Errorf("failed to create environment: %w", err)
-		}
-	} else {
-		a.logger.Info("Environment already exists and contains snapshot and scenario:",
-			"environment.Name", environment.Name,
-			"integrationScenario.Name", integrationTestScenario.Name)
-	}
-
-	// envirnoment binding for snapshot
-	binding, err := a.loader.FindExistingSnapshotEnvironmentBinding(a.client, a.context, a.application, environment)
-	if err != nil {
-		a.logger.Error(err, "Failed to find snapshotEnvironmentBinding associated with environment", "environment.Name", environment.Name)
-		return nil, fmt.Errorf("failed to find SnapshotEnvironmentBinding associated with environment: %w", err)
-	}
-	if binding == nil {
-		// create binding and add scenario name to label of binding
-		binding, err = a.createEnvironmentBindingForScenario(integrationTestScenario, environment, scenarioOpts)
-		if err != nil {
-			testStatuses.UpdateTestStatusIfChanged(
-				integrationTestScenario.Name,
-				intgteststat.IntegrationTestStatusEnvironmentProvisionError,
-				fmt.Sprintf("Failed to create integration test environment: %s", err))
-			a.writeIntegrationTestStatusAtError(testStatuses)
-			return nil, fmt.Errorf("failed to create SnapshotEnvironmentBinding: %w", err)
-		} else {
-			testStatuses.UpdateTestStatusIfChanged(integrationTestScenario.Name, intgteststat.IntegrationTestStatusInProgress, "Deploying")
-		}
-	} else {
-		a.logger.Info("SnapshotEnvironmentBinding already exists for environment",
-			"binding.Name", binding.Name,
-			"environment.Name", environment.Name)
-
-		if d, ok := testStatuses.GetScenarioStatus(integrationTestScenario.Name); ok && d.Status == intgteststat.IntegrationTestStatusPending {
-			// update only from Pending to InProgress to avoid accidental overwrittes from followup states
-			testStatuses.UpdateTestStatusIfChanged(integrationTestScenario.Name, intgteststat.IntegrationTestStatusInProgress, "Deploying")
-		}
-	}
-
-	return binding, nil
-}
-
 // createMissingReleasesForReleasePlans checks if there's existing Releases for a given list of ReleasePlans and creates
 // new ones if they are missing. In case the Releases can't be created, an error will be returned.
 func (a *Adapter) createMissingReleasesForReleasePlans(application *applicationapiv1alpha1.Application, releasePlans *[]releasev1alpha1.ReleasePlan, snapshot *applicationapiv1alpha1.Snapshot) error {
@@ -788,23 +584,14 @@ func (a *Adapter) createSnapshotEnvironmentBindingForSnapshot(application *appli
 		environment.Name,
 		snapshot)
 
-	// The SEBs for ephemeral Environments are expected to be cleaned up along with the Environment,
-	// while all other SEBs are meant to persist and be deleted with the Application
-	if h.IsEnvironmentEphemeral(environment) {
-		err := ctrl.SetControllerReference(environment, snapshotEnvironmentBinding, a.client.Scheme())
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		err := ctrl.SetControllerReference(snapshot, snapshotEnvironmentBinding, a.client.Scheme())
-		if err != nil {
-			return nil, err
-		}
+	err := ctrl.SetControllerReference(snapshot, snapshotEnvironmentBinding, a.client.Scheme())
+	if err != nil {
+		return nil, err
 	}
 
 	_ = metadata.AddLabels(&snapshotEnvironmentBinding.ObjectMeta, additionalLabels)
 
-	err := a.client.Create(a.context, snapshotEnvironmentBinding)
+	err = a.client.Create(a.context, snapshotEnvironmentBinding)
 	if err != nil {
 		return nil, err
 	}
@@ -829,110 +616,6 @@ func (a *Adapter) updateExistingSnapshotEnvironmentBindingWithSnapshot(snapshotE
 	}
 
 	return nil
-}
-
-// createCopyOfExistingEnvironment uses existing env as input, specifies namespace where the environment is situated,
-// integrationTestScenario contains information about existing environment
-// snapshot is mainly used for adding labels
-// returns copy of already existing environment with updated envVars
-func (a *Adapter) createCopyOfExistingEnvironment(existingEnvironment *applicationapiv1alpha1.Environment, namespace string, integrationTestScenario *v1beta1.IntegrationTestScenario, snapshot *applicationapiv1alpha1.Snapshot, application *applicationapiv1alpha1.Application) (*applicationapiv1alpha1.Environment, error) {
-	// Try to find a available DeploymentTargetClass with the right provisioner
-	deploymentTargetClass, err := a.loader.FindAvailableDeploymentTargetClass(a.client, a.context)
-	if err != nil || deploymentTargetClass == nil {
-		a.logger.Error(err, "Failed to find deploymentTargetClass with right provisioner for copy of existingEnvironment!",
-			"existingEnvironment.NameSpace", existingEnvironment.Namespace,
-			"existingEnvironment.Name", existingEnvironment.Name,
-			"deploymentTargetClass.Provisioner", applicationapiv1alpha1.Provisioner_Devsandbox)
-		return nil, err
-	}
-	a.logger.Info("Found DeploymentTargetClass with Provisioner appstudio.redhat.com/devsandbox, creating new DeploymentTargetClaim for Environment",
-		"deploymentTargetClass.Name", deploymentTargetClass.Name)
-
-	dtc, err := a.CreateDeploymentTargetClaimForEnvironment(existingEnvironment.Namespace, deploymentTargetClass.Name)
-	if err != nil {
-		a.logger.Error(err, "Failed to create deploymentTargetClaim with deploymentTargetClass for copy of environment!",
-			"existingEnvironment.NameSpace", existingEnvironment.Namespace,
-			"existingEnvironment.Name", existingEnvironment.Name,
-			"deploymentTargetClass.Name", deploymentTargetClass.Name)
-		return nil, fmt.Errorf("failed to create deploymentTargetClaim with deploymentTargetClass %s: %w", deploymentTargetClass.Name, err)
-	}
-	a.logger.LogAuditEvent("DeploymentTargetClaim is created for environment", dtc, h.LogActionAdd,
-		"integrationTestScenario.Name", integrationTestScenario.Name)
-
-	environment := gitops.NewCopyOfExistingEnvironment(existingEnvironment, namespace, integrationTestScenario, dtc.Name).
-		WithIntegrationLabels(integrationTestScenario).
-		WithSnapshot(snapshot).
-		AsEnvironment()
-	ref := ctrl.SetControllerReference(application, environment, a.client.Scheme())
-	if ref != nil {
-		a.logger.Error(ref, "Failed to set controller reference for Environment!",
-			"environment.Name", environment.Name)
-	}
-
-	err = a.client.Create(a.context, environment)
-	if err != nil {
-		// We don't want to leave the new DTC on the cluster without the matching environment
-		dtcErr := a.client.Delete(a.context, dtc)
-		if dtcErr != nil {
-			return nil, fmt.Errorf("failed to delete DTC %s: %v; failed to create ephemeral environment %s: %w", dtc.Name, dtcErr, environment.Name, err)
-		}
-		a.logger.LogAuditEvent("Deleted DTC after creation of environment failed", dtc, h.LogActionDelete,
-			"integrationTestScenario.Name", integrationTestScenario.Name)
-		return nil, fmt.Errorf("failed to create ephemeral environment %s: %w", environment.Name, err)
-	}
-	a.logger.LogAuditEvent("Ephemeral environment is created for integrationTestScenario", environment, h.LogActionAdd,
-		"integrationTestScenario.Name", integrationTestScenario.Name)
-	return environment, nil
-}
-
-// CreateDeploymentTargetClaimForEnvironment creates a new DeploymentTargetClaim based on the supplied Namespace and DeploymentTargetClassName
-func (a *Adapter) CreateDeploymentTargetClaimForEnvironment(namespace string, deploymentTargetClassName string) (*applicationapiv1alpha1.DeploymentTargetClaim, error) {
-	deploymentTargetClaim := gitops.NewDeploymentTargetClaim(namespace, deploymentTargetClassName)
-	err := a.client.Create(a.context, deploymentTargetClaim)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create DeploymentTargetClaim %s: %w", deploymentTargetClaim.Name, err)
-	}
-
-	return deploymentTargetClaim, nil
-}
-
-// findEnvironmentFromAllEnvironmentsByName try to find environment from all environments by name, return the environment if it exists, otherwise return nil
-func findEnvironmentFromAllEnvironmentsByName(allEnvironments *[]applicationapiv1alpha1.Environment, envname string) *applicationapiv1alpha1.Environment {
-	for _, e := range *allEnvironments {
-		e := e //G601
-		if e.Name == envname {
-			return &e
-		}
-	}
-	return nil
-}
-
-// writeIntegrationTestStatusAtError writes updates of integration test statuses into snapshot
-// This is best effort function, should be used only for handling faulty state before reconcilarion requeue
-func (a *Adapter) writeIntegrationTestStatusAtError(sits *intgteststat.SnapshotIntegrationTestStatuses) {
-	err := gitops.WriteIntegrationTestStatusesIntoSnapshot(a.snapshot, sits, a.client, a.context)
-	if err != nil {
-		a.logger.Error(err, "Updating statuses of tests in snapshot failed")
-	}
-}
-
-// shouldScenarioRunInEphemeralEnv returns true when integration test for scenario should run in an ephemeral environment
-func shouldScenarioRunInEphemeralEnv(scenario *v1beta1.IntegrationTestScenario) bool {
-	// non-empty environment defined in scenario resource means to run in ephemeral env
-	return !reflect.ValueOf(scenario.Spec.Environment).IsZero()
-}
-
-func GetDetailsFromStatusError(err error) (string, string) {
-	var (
-		errKind   string = "<unknown>"
-		errName   string = "<unknown>"
-		statusErr *clienterrors.StatusError
-	)
-	if ok := errors.As(err, &statusErr); ok {
-		errKind = statusErr.Status().Details.Kind
-		errName = statusErr.Status().Details.Name
-	}
-	return errKind, errName
 }
 
 // RequeueIfYoungerThanThreshold checks if the adapter' snapshot is younger than the threshold defined

@@ -45,7 +45,6 @@ const (
 	EnvironmentContextKey
 	ReleaseContextKey
 	PipelineRunsContextKey
-	DeploymentTargetClassContextKey
 	AllIntegrationTestScenariosContextKey
 	RequiredIntegrationTestScenariosContextKey
 	AllSnapshotsContextKey
@@ -143,14 +142,6 @@ func (l *mockLoader) GetSnapshotFromPipelineRun(c client.Client, ctx context.Con
 		return l.loader.GetSnapshotFromPipelineRun(c, ctx, pipelineRun)
 	}
 	return toolkit.GetMockedResourceAndErrorFromContext(ctx, SnapshotContextKey, &applicationapiv1alpha1.Snapshot{})
-}
-
-// FindAvailableDeploymentTargetClass returns the resource and error passed as values of the context.
-func (l *mockLoader) FindAvailableDeploymentTargetClass(c client.Client, ctx context.Context) (*applicationapiv1alpha1.DeploymentTargetClass, error) {
-	if ctx.Value(DeploymentTargetClassContextKey) == nil {
-		return l.loader.FindAvailableDeploymentTargetClass(c, ctx)
-	}
-	return toolkit.GetMockedResourceAndErrorFromContext(ctx, DeploymentTargetClassContextKey, &applicationapiv1alpha1.DeploymentTargetClass{})
 }
 
 // GetAllIntegrationTestScenariosForApplication returns the resource and error passed as values of the context.
