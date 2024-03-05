@@ -138,8 +138,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		adapter.EnsureGlobalCandidateImageUpdated,
 		adapter.EnsureRerunPipelineRunsExist,
 		adapter.EnsureSnapshotEnvironmentBindingExist,
-		adapter.EnsureCreationOfEphemeralEnvironments,
-		adapter.EnsureStaticIntegrationPipelineRunsExist,
+		adapter.EnsureIntegrationPipelineRunsExist,
 	})
 }
 
@@ -147,8 +146,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 type AdapterInterface interface {
 	EnsureAllReleasesExist() (controller.OperationResult, error)
 	EnsureRerunPipelineRunsExist() (controller.OperationResult, error)
-	EnsureCreationOfEnvironment() (controller.OperationResult, error)
-	EnsureAllIntegrationTestPipelinesExist() (controller.OperationResult, error)
+	EnsureIntegrationPipelineRunsExist() (controller.OperationResult, error)
 	EnsureGlobalCandidateImageUpdated() (controller.OperationResult, error)
 	EnsureSnapshotEnvironmentBindingExist() (controller.OperationResult, error)
 }

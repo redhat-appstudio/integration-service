@@ -46,7 +46,6 @@ type ObjectLoader interface {
 	GetApplicationFromComponent(c client.Client, ctx context.Context, component *applicationapiv1alpha1.Component) (*applicationapiv1alpha1.Application, error)
 	GetEnvironmentFromIntegrationPipelineRun(c client.Client, ctx context.Context, pipelineRun *tektonv1.PipelineRun) (*applicationapiv1alpha1.Environment, error)
 	GetSnapshotFromPipelineRun(c client.Client, ctx context.Context, pipelineRun *tektonv1.PipelineRun) (*applicationapiv1alpha1.Snapshot, error)
-	FindAvailableDeploymentTargetClass(c client.Client, ctx context.Context) (*applicationapiv1alpha1.DeploymentTargetClass, error)
 	GetAllIntegrationTestScenariosForApplication(c client.Client, ctx context.Context, application *applicationapiv1alpha1.Application) (*[]v1beta1.IntegrationTestScenario, error)
 	GetRequiredIntegrationTestScenariosForApplication(c client.Client, ctx context.Context, application *applicationapiv1alpha1.Application) (*[]v1beta1.IntegrationTestScenario, error)
 	GetDeploymentTargetClaimForEnvironment(c client.Client, ctx context.Context, environment *applicationapiv1alpha1.Environment) (*applicationapiv1alpha1.DeploymentTargetClaim, error)
@@ -279,23 +278,6 @@ func (l *loader) GetRequiredIntegrationTestScenariosForApplication(c client.Clie
 	}
 
 	return &integrationList.Items, nil
-}
-
-// FindAvailableDeploymentTargetClass attempts to find a DeploymentTargetClass with applicationapiv1alpha1.Provisioner_Devsandbox as provisioner.
-func (l *loader) FindAvailableDeploymentTargetClass(c client.Client, ctx context.Context) (*applicationapiv1alpha1.DeploymentTargetClass, error) {
-	deploymentTargetClassList := &applicationapiv1alpha1.DeploymentTargetClassList{}
-	err := c.List(ctx, deploymentTargetClassList)
-	if err != nil {
-		return nil, fmt.Errorf("cannot find the avaiable DeploymentTargetClass with provisioner %s: %w", applicationapiv1alpha1.Provisioner_Devsandbox, err)
-	}
-
-	for _, dtcls := range deploymentTargetClassList.Items {
-		if dtcls.Spec.Provisioner == applicationapiv1alpha1.Provisioner_Devsandbox {
-			return &dtcls, nil
-		}
-	}
-
-	return nil, fmt.Errorf("cannot find the avaiable DeploymentTargetClass with provisioner %s", applicationapiv1alpha1.Provisioner_Devsandbox)
 }
 
 // GetDeploymentTargetClaimForEnvironment try to find the DeploymentTargetClaim whose name is defined in Environment

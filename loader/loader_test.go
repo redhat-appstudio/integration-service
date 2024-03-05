@@ -605,12 +605,6 @@ var _ = Describe("Loader", Ordered, func() {
 		Expect((*integrationTestScenarios)[0].Name).To(Equal(integrationTestScenario.Name))
 	})
 
-	It("can find available DeploymentTargetClass for application", func() {
-		dtcls, err := loader.FindAvailableDeploymentTargetClass(k8sClient, ctx)
-		Expect(err).To(BeNil())
-		Expect(dtcls.Name).To(Equal(deploymentTargetClass.Name))
-	})
-
 	It("can fetch DeploymentTargetClaim for environment", func() {
 		dtcls, err := loader.GetDeploymentTargetClaimForEnvironment(k8sClient, ctx, hasEnv)
 		Expect(err).To(BeNil())

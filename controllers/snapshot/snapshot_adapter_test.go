@@ -18,6 +18,7 @@ package snapshot
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"reflect"
 	"time"
@@ -32,7 +33,6 @@ import (
 	"github.com/redhat-appstudio/integration-service/api/v1beta1"
 	"github.com/redhat-appstudio/integration-service/loader"
 	toolkit "github.com/redhat-appstudio/operator-toolkit/loader"
-	"github.com/redhat-appstudio/operator-toolkit/metadata"
 	releasev1alpha1 "github.com/redhat-appstudio/release-service/api/v1alpha1"
 	releasemetadata "github.com/redhat-appstudio/release-service/metadata"
 	tektonv1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
@@ -62,10 +62,8 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 		deploymentTargetClass                     *applicationapiv1alpha1.DeploymentTargetClass
 		integrationTestScenario                   *v1beta1.IntegrationTestScenario
 		integrationTestScenarioWithoutEnv         *v1beta1.IntegrationTestScenario
-		integrationTestScenarioWithoutEnvCopy     *v1beta1.IntegrationTestScenario
 		integrationTestScenarioForInvalidSnapshot *v1beta1.IntegrationTestScenario
 		env                                       *applicationapiv1alpha1.Environment
-		tmpEnv                                    *applicationapiv1alpha1.Environment
 		hasBinding                                *applicationapiv1alpha1.SnapshotEnvironmentBinding
 	)
 	const (
@@ -339,38 +337,6 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 		})
 
 		It("ensures the integrationTestPipelines are created", func() {
-			integrationTestScenarioWithoutEnvCopy = &v1beta1.IntegrationTestScenario{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "example-pass-without-env-copy",
-					Namespace: "default",
-
-					Labels: map[string]string{
-						"test.appstudio.openshift.io/optional": "false",
-					},
-				},
-				Spec: v1beta1.IntegrationTestScenarioSpec{
-					Application: "application-sample",
-					ResolverRef: v1beta1.ResolverRef{
-						Resolver: "git",
-						Params: []v1beta1.ResolverParameter{
-							{
-								Name:  "url",
-								Value: "https://github.com/redhat-appstudio/integration-examples.git",
-							},
-							{
-								Name:  "revision",
-								Value: "main",
-							},
-							{
-								Name:  "pathInRepo",
-								Value: "pipelineruns/integration_pipelinerun_pass.yaml",
-							},
-						},
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, integrationTestScenarioWithoutEnvCopy)).Should(Succeed())
-
 			log := helpers.IntegrationLogger{Logger: buflogr.NewWithBuffer(&buf)}
 			adapter = NewAdapter(hasSnapshot, hasApp, hasComp, log, loader.NewMockLoader(), k8sClient, ctx)
 			adapter.context = toolkit.GetMockedContext(ctx, []toolkit.MockData{
@@ -387,125 +353,68 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 					Resource:   hasSnapshot,
 				},
 				{
-					ContextKey: loader.EnvironmentContextKey,
-					Resource:   env,
-				},
-				{
 					ContextKey: loader.SnapshotComponentsContextKey,
 					Resource:   []applicationapiv1alpha1.Component{*hasComp},
 				},
 				{
 					ContextKey: loader.AllIntegrationTestScenariosContextKey,
-					Resource:   []v1beta1.IntegrationTestScenario{*integrationTestScenario, *integrationTestScenarioWithoutEnv, *integrationTestScenarioWithoutEnvCopy},
+					Resource:   []v1beta1.IntegrationTestScenario{*integrationTestScenario, *integrationTestScenarioWithoutEnv},
 				},
 				{
 					ContextKey: loader.RequiredIntegrationTestScenariosContextKey,
-					Resource:   []v1beta1.IntegrationTestScenario{*integrationTestScenario, *integrationTestScenarioWithoutEnv, *integrationTestScenarioWithoutEnvCopy},
+					Resource:   []v1beta1.IntegrationTestScenario{*integrationTestScenario, *integrationTestScenarioWithoutEnv},
 				},
 			})
-			result, err := adapter.EnsureStaticIntegrationPipelineRunsExist()
-			Expect(!result.CancelRequest && err == nil).To(BeTrue())
+
+			result, err := adapter.EnsureIntegrationPipelineRunsExist()
+			Expect(result.CancelRequest).To(BeFalse())
+			Expect(result.RequeueRequest).To(BeFalse())
+			Expect(err).ToNot(HaveOccurred())
 
 			requiredIntegrationTestScenarios, err := adapter.loader.GetRequiredIntegrationTestScenariosForApplication(k8sClient, adapter.context, hasApp)
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 			Expect(requiredIntegrationTestScenarios).NotTo(BeNil())
-			expectedLogEntry := "IntegrationTestScenario has environment defined,"
+			expectedLogEntry := "Creating new pipelinerun for integrationTestscenario integrationTestScenario.Name example-pass-without-env"
 			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
-			expectedLogEntry = "Creating new pipelinerun for integrationTestscenario integrationTestScenario.Name example-pass-without-env"
-			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
-			expectedLogEntry = "Creating new pipelinerun for integrationTestscenario integrationTestScenario.Name example-pass-without-env-copy"
+			expectedLogEntry = "Creating new pipelinerun for integrationTestscenario integrationTestScenario.Name example-pass"
 			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
 			expectedLogEntry = "Snapshot integration status marked as In Progress. Snapshot starts being tested by the integrationPipelineRun"
 			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
 
 			// Snapshot must have InProgress tests
 			statuses, err := gitops.NewSnapshotIntegrationTestStatusesFromSnapshot(hasSnapshot)
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 			detail, ok := statuses.GetScenarioStatus(integrationTestScenarioWithoutEnv.Name)
 			Expect(ok).To(BeTrue())
 			Expect(detail.Status).To(Equal(intgteststat.IntegrationTestStatusInProgress))
-		})
+			detail, ok = statuses.GetScenarioStatus(integrationTestScenario.Name)
+			Expect(ok).To(BeTrue())
+			Expect(detail.Status).To(Equal(intgteststat.IntegrationTestStatusInProgress))
 
-		When("TestPipelineRunName in snapshot annotation is not nil", func() {
-			BeforeEach(func() {
-				err := metadata.SetAnnotation(&hasSnapshot.ObjectMeta, gitops.SnapshotTestsStatusAnnotation, "[{\"scenario\":\"example-pass-without-env\",\"testPipelineRunName\":\"int-plr-123\",\"status\":\"InProgress\",\"startTime\":\"2023-07-26T16:57:49+02:00\",\"lastUpdateTime\":\"2023-08-26T17:57:49+02:00\",\"details\":\"in progress\"}]")
-				Expect(err).To(BeNil())
-				log := helpers.IntegrationLogger{Logger: buflogr.NewWithBuffer(&buf)}
-				adapter = NewAdapter(hasSnapshot, hasApp, hasComp, log, loader.NewMockLoader(), k8sClient, ctx)
-				adapter.context = toolkit.GetMockedContext(ctx, []toolkit.MockData{
-					{
-						ContextKey: loader.ApplicationContextKey,
-						Resource:   hasApp,
-					},
-					{
-						ContextKey: loader.ComponentContextKey,
-						Resource:   hasComp,
-					},
-					{
-						ContextKey: loader.SnapshotContextKey,
-						Resource:   hasSnapshot,
-					},
-					{
-						ContextKey: loader.EnvironmentContextKey,
-						Resource:   env,
-					},
-					{
-						ContextKey: loader.SnapshotComponentsContextKey,
-						Resource:   []applicationapiv1alpha1.Component{*hasComp},
-					},
-					{
-						ContextKey: loader.AllIntegrationTestScenariosContextKey,
-						Resource:   []v1beta1.IntegrationTestScenario{*integrationTestScenario, *integrationTestScenarioWithoutEnv, *integrationTestScenarioWithoutEnvCopy},
-					},
-					{
-						ContextKey: loader.RequiredIntegrationTestScenariosContextKey,
-						Resource:   []v1beta1.IntegrationTestScenario{*integrationTestScenario, *integrationTestScenarioWithoutEnv, *integrationTestScenarioWithoutEnvCopy},
-					},
-				})
-			})
-			It("Integration PLR will not be created again for integration test scenario", func() {
-				result, err := adapter.EnsureStaticIntegrationPipelineRunsExist()
-				expectedLogEntry := "Found existing integrationPipelineRun"
-				Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
-				Expect(result.CancelRequest).To(BeFalse())
-				Expect(result.RequeueRequest).To(BeFalse())
-				Expect(err).To(BeNil())
-			})
-		})
-
-		It("Ensure IntegrationPipelineRun can be created for scenario", func() {
-			_, err := adapter.createIntegrationPipelineRun(hasApp, integrationTestScenario, hasSnapshot)
-			Expect(err == nil).To(BeTrue())
-
-			integrationPipelineRuns := &tektonv1.PipelineRunList{}
-			opts := []client.ListOption{
-				client.InNamespace(hasApp.Namespace),
-				client.MatchingLabels{
-					"pipelines.appstudio.openshift.io/type": "test",
-					"appstudio.openshift.io/snapshot":       hasSnapshot.Name,
-					"test.appstudio.openshift.io/scenario":  integrationTestScenario.Name,
-				},
-			}
+			integrationPipelineRuns := []tektonv1.PipelineRun{}
 			Eventually(func() error {
-				if err := k8sClient.List(adapter.context, integrationPipelineRuns, opts...); err != nil {
+				integrationPipelineRuns, err = getAllIntegrationPipelineRunsForSnapshot(adapter.context, hasSnapshot)
+				if err != nil {
 					return err
 				}
 
-				if expected, got := 1, len(integrationPipelineRuns.Items); expected != got {
-					return fmt.Errorf("found %d PipelineRuns, expected: %d", expected, got)
+				if expected, got := 2, len(integrationPipelineRuns); expected != got {
+					return fmt.Errorf("found %d PipelineRuns, expected: %d", got, expected)
 				}
-
 				return nil
 			}, time.Second*10).Should(BeNil())
 
-			Expect(integrationPipelineRuns.Items).To(HaveLen(1))
-			Expect(integrationPipelineRuns.Items[0].Annotations).To(Equal(map[string]string{
-				gitops.PipelineAsCodeInstallationIDAnnotation: "123",
-				"build.appstudio.redhat.com/commit_sha":       "6c65b2fcaea3e1a0a92476c8b5dc89e92a85f025",
-				"test.appstudio.openshift.io/kind":            "kind",
-			}))
+			Expect(integrationPipelineRuns).To(HaveLen(2))
+			Expect(k8sClient.Delete(adapter.context, &integrationPipelineRuns[0])).Should(Succeed())
+			Expect(k8sClient.Delete(adapter.context, &integrationPipelineRuns[1])).Should(Succeed())
 
-			Expect(k8sClient.Delete(adapter.context, &integrationPipelineRuns.Items[0])).Should(Succeed())
+			// It will not re-trigger integration pipelineRuns
+			result, err = adapter.EnsureIntegrationPipelineRunsExist()
+			expectedLogEntry = "Found existing integrationPipelineRun"
+			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
+			Expect(result.CancelRequest).To(BeFalse())
+			Expect(result.RequeueRequest).To(BeFalse())
+			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("ensures global Component Image will not be updated in the PR context", func() {
@@ -905,7 +814,7 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 					Err:        fmt.Errorf("not found"),
 				},
 			})
-			result, err := adapter.EnsureStaticIntegrationPipelineRunsExist()
+			result, err := adapter.EnsureIntegrationPipelineRunsExist()
 			Expect(buf.String()).Should(ContainSubstring("Failed to get Integration test scenarios for the following application"))
 			Expect(buf.String()).Should(ContainSubstring("Failed to get all required IntegrationTestScenarios"))
 			Expect(result.CancelRequest).To(BeTrue())
@@ -935,7 +844,7 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 					Resource:   nil,
 				},
 			})
-			result, err := adapter.EnsureStaticIntegrationPipelineRunsExist()
+			result, err := adapter.EnsureIntegrationPipelineRunsExist()
 			Expect(buf.String()).Should(ContainSubstring("Snapshot marked as successful. No required IntegrationTestScenarios found, skipped testing"))
 			Expect(result.CancelRequest).To(BeFalse())
 			Expect(result.RequeueRequest).To(BeFalse())
@@ -963,7 +872,7 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 					Resource:   hasSnapshot,
 				},
 			})
-			result, err := adapter.EnsureStaticIntegrationPipelineRunsExist()
+			result, err := adapter.EnsureIntegrationPipelineRunsExist()
 			Expect(buf.String()).Should(ContainSubstring("The Snapshot has finished testing."))
 			Expect(result.CancelRequest).To(BeFalse())
 			Expect(result.RequeueRequest).To(BeFalse())
@@ -1094,7 +1003,7 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 				},
 			})
 
-			result, err := adapter.EnsureStaticIntegrationPipelineRunsExist()
+			result, err := adapter.EnsureIntegrationPipelineRunsExist()
 			Expect(result.CancelRequest).To(BeTrue())
 			Expect(err).ToNot(HaveOccurred())
 
@@ -1154,574 +1063,6 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).NotTo(BeNil())
 			Expect(result.RequeueRequest).To(BeFalse())
-		})
-	})
-
-	When("multiple components exist", func() {
-
-		var (
-			secondComp *applicationapiv1alpha1.Component
-			buf        bytes.Buffer
-		)
-
-		BeforeAll(func() {
-			secondComp = &applicationapiv1alpha1.Component{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "component-second-sample",
-					Namespace: "default",
-				},
-				Spec: applicationapiv1alpha1.ComponentSpec{
-					ComponentName:  "component-second-sample",
-					Application:    "application-sample",
-					ContainerImage: "",
-					Source: applicationapiv1alpha1.ComponentSource{
-						ComponentSourceUnion: applicationapiv1alpha1.ComponentSourceUnion{
-							GitSource: &applicationapiv1alpha1.GitSource{
-								URL: SampleRepoLink,
-							},
-						},
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, secondComp)).Should(Succeed())
-
-			log := helpers.IntegrationLogger{Logger: buflogr.NewWithBuffer(&buf)}
-			adapter = NewAdapter(hasSnapshotPR, hasApp, hasComp, log, loader.NewMockLoader(), k8sClient, ctx)
-			adapter.context = toolkit.GetMockedContext(ctx, []toolkit.MockData{
-				{
-					ContextKey: loader.ApplicationContextKey,
-					Resource:   hasApp,
-				},
-				{
-					ContextKey: loader.ComponentContextKey,
-					Resource:   hasComp,
-				},
-				{
-					ContextKey: loader.SnapshotContextKey,
-					Resource:   hasSnapshotPR,
-				},
-				{
-					ContextKey: loader.EnvironmentContextKey,
-					Resource:   env,
-				},
-				{
-					ContextKey: loader.ApplicationComponentsContextKey,
-					Resource:   []applicationapiv1alpha1.Component{*hasComp, *secondComp},
-				},
-				{
-					ContextKey: loader.DeploymentTargetClassContextKey,
-					Resource:   deploymentTargetClass,
-				},
-				{
-					ContextKey: loader.AllIntegrationTestScenariosContextKey,
-					Resource:   []v1beta1.IntegrationTestScenario{*integrationTestScenario, *integrationTestScenarioWithoutEnv},
-				},
-				{
-					ContextKey: loader.RequiredIntegrationTestScenariosContextKey,
-					Resource:   []v1beta1.IntegrationTestScenario{*integrationTestScenario, *integrationTestScenarioWithoutEnv},
-				},
-				{
-					ContextKey: loader.SnapshotEnvironmentBindingContextKey,
-					Resource:   nil,
-				},
-			})
-		})
-
-		AfterAll(func() {
-			err := k8sClient.Delete(ctx, secondComp)
-			Expect(err == nil || errors.IsNotFound(err)).To(BeTrue())
-		})
-
-		It("ensures updating existing snapshot works", func() {
-			var snapshotEnvironmentBinding *applicationapiv1alpha1.SnapshotEnvironmentBinding
-
-			// create snapshot environment
-			newLabels := map[string]string{}
-			newLabels[gitops.SnapshotTestScenarioLabel] = integrationTestScenario.Name
-			snapshotEnvironmentBinding, err := adapter.createSnapshotEnvironmentBindingForSnapshot(adapter.application, env, hasSnapshot, newLabels)
-			Expect(err).To(BeNil())
-			Expect(snapshotEnvironmentBinding).NotTo(BeNil())
-			Expect(snapshotEnvironmentBinding.Labels[gitops.SnapshotTestScenarioLabel]).To(Equal(integrationTestScenario.Name))
-
-			otherSnapshot := hasSnapshot.DeepCopy()
-			otherSnapshot.Name = "other-snapshot"
-			otherSnapshot.Spec.Components = []applicationapiv1alpha1.SnapshotComponent{{Name: secondComp.Name, ContainerImage: sample_image}}
-
-			err = adapter.updateExistingSnapshotEnvironmentBindingWithSnapshot(snapshotEnvironmentBinding, otherSnapshot)
-			Expect(err).To(BeNil())
-
-			// get fresh copy to make sure that SEB was updated in k8s
-			updatedSEB := &applicationapiv1alpha1.SnapshotEnvironmentBinding{}
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Namespace: snapshotEnvironmentBinding.Namespace,
-					Name:      snapshotEnvironmentBinding.Name,
-				}, updatedSEB)
-				return err == nil && len(updatedSEB.Spec.Components) == 1 && updatedSEB.Spec.Snapshot == otherSnapshot.Name
-			}, time.Second*10).Should(BeTrue())
-			Expect(updatedSEB.Spec.Snapshot).To(Equal(otherSnapshot.Name))
-			Expect(updatedSEB.Spec.Components[0].Name).To(Equal(secondComp.Name))
-
-			err = k8sClient.Delete(ctx, snapshotEnvironmentBinding)
-			Expect(err == nil || errors.IsNotFound(err)).To(BeTrue())
-		})
-
-		It("ensures the ephemeral copy Environment are created for IntegrationTestScenario", func() {
-			result, err := adapter.EnsureCreationOfEphemeralEnvironments()
-			Expect(!result.CancelRequest && err == nil).To(BeTrue())
-
-			expectedLogEntry := "Ephemeral environment is created for integrationTestScenario"
-			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
-			expectedLogEntry = "A snapshotEnvironmentbinding is created"
-			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
-
-			expectedLogEntry = "DeploymentTargetClaim is created for environment"
-			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
-		})
-
-		It("ensure binding with scenario label created", func() {
-			bindingList := &applicationapiv1alpha1.SnapshotEnvironmentBindingList{}
-			opts := &client.ListOptions{
-				Namespace: hasApp.Namespace,
-			}
-			Eventually(func() bool {
-				_ = adapter.client.List(adapter.context, bindingList, opts)
-				return len(bindingList.Items) > 0 && bindingList.Items[0].ObjectMeta.Labels[gitops.SnapshotTestScenarioLabel] == integrationTestScenario.Name
-			}, time.Second*10).Should(BeTrue())
-			binding := bindingList.Items[0]
-			Expect(binding.Spec.Application).To(Equal(hasApp.Name))
-			Expect(binding.Spec.Snapshot).To(Equal(hasSnapshotPR.Name))
-			Expect(binding.Spec.Environment).NotTo(BeNil())
-
-			env := &applicationapiv1alpha1.Environment{}
-			err := adapter.client.Get(adapter.context, types.NamespacedName{
-				Name:      binding.Spec.Environment,
-				Namespace: binding.Namespace,
-			}, env)
-			Expect(err).To(BeNil())
-			Expect(env).NotTo(BeNil())
-
-			dtc := &applicationapiv1alpha1.DeploymentTargetClaim{}
-			err = adapter.client.Get(adapter.context, types.NamespacedName{
-				Name:      env.Spec.Configuration.Target.DeploymentTargetClaim.ClaimName,
-				Namespace: binding.Namespace,
-			}, dtc)
-			Expect(err).To(BeNil())
-			Expect(dtc).NotTo(BeNil())
-
-			err = k8sClient.Delete(ctx, env)
-			Expect(err == nil || errors.IsNotFound(err)).To(BeTrue())
-			err = k8sClient.Delete(ctx, &binding)
-			Expect(err == nil || errors.IsNotFound(err)).To(BeTrue())
-			err = k8sClient.Delete(ctx, dtc)
-			Expect(err == nil || errors.IsNotFound(err)).To(BeTrue())
-		})
-
-		It("Skip ephemeral env creation for passed Snapshot", func() {
-			var buf bytes.Buffer
-			log := helpers.IntegrationLogger{Logger: buflogr.NewWithBuffer(&buf)}
-			err := gitops.MarkSnapshotAsPassed(k8sClient, ctx, hasSnapshot, "test pass")
-			Expect(err).To((Succeed()))
-			Expect(gitops.HaveAppStudioTestsSucceeded(hasSnapshot)).To(BeTrue())
-			adapter = NewAdapter(hasSnapshot, hasApp, hasComp, log, loader.NewMockLoader(), k8sClient, ctx)
-			adapter.context = toolkit.GetMockedContext(ctx, []toolkit.MockData{
-				{
-					ContextKey: loader.ApplicationContextKey,
-					Resource:   hasApp,
-				},
-				{
-					ContextKey: loader.SnapshotContextKey,
-					Resource:   hasSnapshot,
-				},
-			})
-			result, err := adapter.EnsureCreationOfEphemeralEnvironments()
-			Expect(buf.String()).Should(ContainSubstring("The Snapshot has finished testing."))
-			Expect(!result.CancelRequest).To(BeTrue())
-			Expect(!result.RequeueRequest).To(BeTrue())
-			Expect(err == nil).To(BeTrue())
-		})
-	})
-
-	When("An ephemeral Environment environment exists already", func() {
-		var (
-			ephemeralEnv *applicationapiv1alpha1.Environment
-			buf          bytes.Buffer
-		)
-
-		BeforeAll(func() {
-			ephemeralEnv = &applicationapiv1alpha1.Environment{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "ephemeral-env-",
-					Namespace:    "default",
-					Labels: map[string]string{
-						gitops.SnapshotLabel:             hasSnapshotPR.Name,
-						gitops.SnapshotTestScenarioLabel: integrationTestScenario.Name,
-					},
-				},
-				Spec: applicationapiv1alpha1.EnvironmentSpec{
-					Type:               "POC",
-					DisplayName:        "ephemeral-environment",
-					DeploymentStrategy: applicationapiv1alpha1.DeploymentStrategy_Manual,
-					ParentEnvironment:  "",
-					Tags:               []string{"ephemeral"},
-					Configuration: applicationapiv1alpha1.EnvironmentConfiguration{
-						Env: []applicationapiv1alpha1.EnvVarPair{
-							{
-								Name:  "var_name",
-								Value: "test",
-							},
-						},
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, ephemeralEnv)).Should(Succeed())
-
-			log := helpers.IntegrationLogger{Logger: buflogr.NewWithBuffer(&buf)}
-			adapter = NewAdapter(hasSnapshotPR, hasApp, hasComp, log, loader.NewMockLoader(), k8sClient, ctx)
-			adapter.context = toolkit.GetMockedContext(ctx, []toolkit.MockData{
-				{
-					ContextKey: loader.ApplicationContextKey,
-					Resource:   hasApp,
-				},
-				{
-					ContextKey: loader.ComponentContextKey,
-					Resource:   hasComp,
-				},
-				{
-					ContextKey: loader.SnapshotContextKey,
-					Resource:   hasSnapshotPR,
-				},
-				{
-					ContextKey: loader.EnvironmentContextKey,
-					Resource:   ephemeralEnv,
-				},
-				{
-					ContextKey: loader.SnapshotEnvironmentBindingContextKey,
-					Resource:   nil,
-				},
-				{
-					ContextKey: loader.ApplicationComponentsContextKey,
-					Resource:   []applicationapiv1alpha1.Component{*hasComp},
-				},
-				{
-					ContextKey: loader.AllIntegrationTestScenariosContextKey,
-					Resource:   []v1beta1.IntegrationTestScenario{*integrationTestScenario, *integrationTestScenarioWithoutEnv},
-				},
-			})
-		})
-
-		AfterAll(func() {
-			err := k8sClient.Delete(ctx, ephemeralEnv)
-			Expect(err == nil || errors.IsNotFound(err)).To(BeTrue())
-		})
-
-		It("ensures the ephemeral copy Environment will not be created again for IntegrationTestScenario", func() {
-			result, err := adapter.EnsureCreationOfEphemeralEnvironments()
-			Expect(!result.CancelRequest && err == nil).To(BeTrue())
-
-			expectedLogEntry := "Environment already exists and contains snapshot and scenario"
-			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
-			expectedLogEntry = "A snapshotEnvironmentbinding is created"
-			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
-		})
-
-		It("ensure binding with scenario label created", func() {
-			bindingList := &applicationapiv1alpha1.SnapshotEnvironmentBindingList{}
-			opts := &client.ListOptions{
-				Namespace: hasApp.Namespace,
-			}
-			Eventually(func() bool {
-				_ = adapter.client.List(adapter.context, bindingList, opts)
-				return len(bindingList.Items) > 0 && bindingList.Items[0].ObjectMeta.Labels[gitops.SnapshotTestScenarioLabel] == integrationTestScenario.Name
-			}, time.Second*10).Should(BeTrue())
-			binding := bindingList.Items[0]
-			Expect(binding.Spec.Application).To(Equal(hasApp.Name))
-			Expect(binding.Spec.Snapshot).To(Equal(hasSnapshotPR.Name))
-			Expect(binding.Spec.Environment).To(Equal(ephemeralEnv.Name))
-
-			owners := binding.GetOwnerReferences()
-			Expect(owners).To(HaveLen(1))
-			Expect(owners[0].Name).To(Equal(ephemeralEnv.Name))
-		})
-
-		When("binding exists for the ephemeral environment", func() {
-			BeforeEach(func() {
-				hasBinding = &applicationapiv1alpha1.SnapshotEnvironmentBinding{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "snapshot-binding-sample",
-						Namespace: "default",
-						Labels: map[string]string{
-							gitops.SnapshotTestScenarioLabel: integrationTestScenario.Name,
-						},
-					},
-					Spec: applicationapiv1alpha1.SnapshotEnvironmentBindingSpec{
-						Application: hasApp.Name,
-						Snapshot:    hasSnapshot.Name,
-						Environment: ephemeralEnv.Name,
-						Components:  []applicationapiv1alpha1.BindingComponent{},
-					},
-				}
-				Expect(k8sClient.Create(ctx, hasBinding)).Should(Succeed())
-			})
-
-			AfterEach(func() {
-				err := k8sClient.Delete(ctx, hasBinding)
-				Expect(err == nil || errors.IsNotFound(err)).To(BeTrue())
-			})
-
-			It("ensure ephemeral env and binding will not be created adain", func() {
-				log := helpers.IntegrationLogger{Logger: buflogr.NewWithBuffer(&buf)}
-				adapter = NewAdapter(hasSnapshotPR, hasApp, hasComp, log, loader.NewMockLoader(), k8sClient, ctx)
-				adapter.context = toolkit.GetMockedContext(ctx, []toolkit.MockData{
-					{
-						ContextKey: loader.ApplicationContextKey,
-						Resource:   hasApp,
-					},
-					{
-						ContextKey: loader.ComponentContextKey,
-						Resource:   hasComp,
-					},
-					{
-						ContextKey: loader.SnapshotContextKey,
-						Resource:   hasSnapshotPR,
-					},
-					{
-						ContextKey: loader.EnvironmentContextKey,
-						Resource:   ephemeralEnv,
-					},
-					{
-						ContextKey: loader.SnapshotEnvironmentBindingContextKey,
-						Resource:   hasBinding,
-					},
-					{
-						ContextKey: loader.ApplicationComponentsContextKey,
-						Resource:   []applicationapiv1alpha1.Component{*hasComp},
-					},
-					{
-						ContextKey: loader.AllIntegrationTestScenariosContextKey,
-						Resource:   []v1beta1.IntegrationTestScenario{*integrationTestScenario, *integrationTestScenarioWithoutEnv},
-					},
-				})
-				result, err := adapter.EnsureCreationOfEphemeralEnvironments()
-				Expect(!result.CancelRequest && err == nil).To(BeTrue())
-				expectedLogEntry := "SnapshotEnvironmentBinding already exists for environment"
-				Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
-			})
-		})
-
-		It("Requeue when fetching existing binding for ephemeralEnv experiences error", func() {
-			log := helpers.IntegrationLogger{Logger: buflogr.NewWithBuffer(&buf)}
-			adapter = NewAdapter(hasSnapshotPR, hasApp, hasComp, log, loader.NewMockLoader(), k8sClient, ctx)
-			adapter.context = toolkit.GetMockedContext(ctx, []toolkit.MockData{
-				{
-					ContextKey: loader.ApplicationContextKey,
-					Resource:   hasApp,
-				},
-				{
-					ContextKey: loader.ComponentContextKey,
-					Resource:   hasComp,
-				},
-				{
-					ContextKey: loader.SnapshotContextKey,
-					Resource:   hasSnapshotPR,
-				},
-				{
-					ContextKey: loader.EnvironmentContextKey,
-					Resource:   ephemeralEnv,
-				},
-				{
-					ContextKey: loader.SnapshotEnvironmentBindingContextKey,
-					Err:        fmt.Errorf("not found"),
-				},
-				{
-					ContextKey: loader.ApplicationComponentsContextKey,
-					Resource:   []applicationapiv1alpha1.Component{*hasComp},
-				},
-				{
-					ContextKey: loader.AllIntegrationTestScenariosContextKey,
-					Resource:   []v1beta1.IntegrationTestScenario{*integrationTestScenario, *integrationTestScenarioWithoutEnv},
-				},
-			})
-			result, err := adapter.EnsureCreationOfEphemeralEnvironments()
-			Expect(!result.CancelRequest && result.RequeueRequest && err != nil).To(BeTrue())
-			expectedLogEntry := "Failed to find snapshotEnvironmentBinding associated with environment"
-			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
-		})
-	})
-
-	When("deploymentTargetClass doesn't exist", func() {
-		var (
-			buf bytes.Buffer
-		)
-
-		BeforeAll(func() {
-			log := helpers.IntegrationLogger{Logger: buflogr.NewWithBuffer(&buf)}
-			adapter = NewAdapter(hasSnapshotPR, hasApp, hasComp, log, loader.NewMockLoader(), k8sClient, ctx)
-			adapter.context = toolkit.GetMockedContext(ctx, []toolkit.MockData{
-				{
-					ContextKey: loader.ApplicationContextKey,
-					Resource:   hasApp,
-				},
-				{
-					ContextKey: loader.ComponentContextKey,
-					Resource:   hasComp,
-				},
-				{
-					ContextKey: loader.SnapshotContextKey,
-					Resource:   hasSnapshotPR,
-				},
-				{
-					ContextKey: loader.DeploymentTargetClassContextKey,
-					Err:        fmt.Errorf("not found"),
-				},
-				{
-					ContextKey: loader.ApplicationComponentsContextKey,
-					Resource:   []applicationapiv1alpha1.Component{*hasComp},
-				},
-				{
-					ContextKey: loader.AllIntegrationTestScenariosContextKey,
-					Resource:   []v1beta1.IntegrationTestScenario{*integrationTestScenario},
-				},
-			})
-		})
-
-		It("requeue when deploymentTargetClass is not found", func() {
-			result, err := adapter.EnsureCreationOfEphemeralEnvironments()
-			Expect(!result.CancelRequest && result.RequeueRequest && err != nil).To(BeTrue())
-
-			expectedLogEntry := "Failed to find deploymentTargetClass with right provisioner"
-			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
-		})
-	})
-
-	When("An environment defined in ITS doesn't exist", func() {
-		var (
-			buf bytes.Buffer
-		)
-
-		BeforeAll(func() {
-			tmpEnv = &applicationapiv1alpha1.Environment{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "envname-tmp",
-					Namespace: "default",
-				},
-				Spec: applicationapiv1alpha1.EnvironmentSpec{
-					Type:               "POC",
-					DisplayName:        "envname-tmp",
-					DeploymentStrategy: applicationapiv1alpha1.DeploymentStrategy_Manual,
-					ParentEnvironment:  "",
-					Tags:               []string{},
-					Configuration: applicationapiv1alpha1.EnvironmentConfiguration{
-						Env: []applicationapiv1alpha1.EnvVarPair{
-							{
-								Name:  "var_name",
-								Value: "test",
-							},
-						},
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, tmpEnv)).Should(Succeed())
-
-			log := helpers.IntegrationLogger{Logger: buflogr.NewWithBuffer(&buf)}
-			adapter = NewAdapter(hasSnapshotPR, hasApp, hasComp, log, loader.NewMockLoader(), k8sClient, ctx)
-			adapter.context = toolkit.GetMockedContext(ctx, []toolkit.MockData{
-				{
-					ContextKey: loader.ApplicationContextKey,
-					Resource:   hasApp,
-				},
-				{
-					ContextKey: loader.ComponentContextKey,
-					Resource:   hasComp,
-				},
-				{
-					ContextKey: loader.SnapshotContextKey,
-					Resource:   hasSnapshotPR,
-				},
-				{
-					ContextKey: loader.EnvironmentContextKey,
-					Resource:   tmpEnv,
-				},
-				{
-					ContextKey: loader.SnapshotEnvironmentBindingContextKey,
-					Resource:   nil,
-				},
-				{
-					ContextKey: loader.ApplicationComponentsContextKey,
-					Resource:   []applicationapiv1alpha1.Component{*hasComp},
-				},
-				{
-					ContextKey: loader.AllIntegrationTestScenariosContextKey,
-					Resource:   []v1beta1.IntegrationTestScenario{*integrationTestScenario},
-				},
-			})
-		})
-
-		AfterAll(func() {
-			err := k8sClient.Delete(ctx, tmpEnv)
-			Expect(err == nil || errors.IsNotFound(err)).To(BeTrue())
-		})
-
-		It("Ensure stopping processing when environment defined in ITS doesn't exist", func() {
-			result, err := adapter.EnsureCreationOfEphemeralEnvironments()
-			Expect(result.CancelRequest && !result.RequeueRequest && err == nil).To(BeTrue())
-			expectedLogEntry := "environment doesn't exist in the same namespace as integrationScenario at all"
-			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
-		})
-
-	})
-
-	When("An environment defined in ITS is invalid", func() {
-		var (
-			buf bytes.Buffer
-		)
-
-		BeforeAll(func() {
-
-			log := helpers.IntegrationLogger{Logger: buflogr.NewWithBuffer(&buf)}
-			adapter = NewAdapter(hasSnapshotPR, hasApp, hasComp, log, loader.NewMockLoader(), k8sClient, ctx)
-			adapter.context = toolkit.GetMockedContext(ctx, []toolkit.MockData{
-				{
-					ContextKey: loader.ApplicationContextKey,
-					Resource:   hasApp,
-				},
-				{
-					ContextKey: loader.ComponentContextKey,
-					Resource:   hasComp,
-				},
-				{
-					ContextKey: loader.SnapshotContextKey,
-					Resource:   hasSnapshotPR,
-				},
-				{
-					ContextKey: loader.EnvironmentContextKey,
-					Resource:   env,
-				},
-				{
-					ContextKey: loader.SnapshotEnvironmentBindingContextKey,
-					Resource:   nil,
-				},
-				{
-					ContextKey: loader.ApplicationComponentsContextKey,
-					Resource:   []applicationapiv1alpha1.Component{*hasComp},
-				},
-				{
-					ContextKey: loader.AllIntegrationTestScenariosContextKey,
-					Resource:   []v1beta1.IntegrationTestScenario{*integrationTestScenario},
-				},
-				{
-					ContextKey: loader.DeploymentTargetClassContextKey,
-					Resource:   deploymentTargetClass,
-					Err:        errors.NewInvalid(deploymentTargetClass.GetObjectKind().GroupVersionKind().GroupKind(), "invalid environment", nil),
-				},
-			})
-		})
-
-		It("Ensure stopping processing when environment defined in ITS is invalid", func() {
-			result, err := adapter.EnsureCreationOfEphemeralEnvironments()
-			Expect(result.CancelRequest && !result.RequeueRequest && err == nil).To(BeTrue())
-			expectedLogEntry := "is invalid"
-			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
 		})
 	})
 
@@ -1969,41 +1310,18 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 		})
 	})
 
-	Describe("createEnvironmentBindingForScenario", func() {
-
-		var (
-			testSEB *applicationapiv1alpha1.SnapshotEnvironmentBinding
-		)
-
-		When("SEB for rerun is created", func() {
-
-			BeforeEach(func() {
-				var err error
-				testSEB, err = adapter.createEnvironmentBindingForScenario(integrationTestScenario, env, ScenarioOptions{IsReRun: true})
-				Expect(err).To(Succeed())
-			})
-
-			AfterEach(func() {
-				err := k8sClient.Delete(ctx, testSEB)
-				Expect(err == nil || errors.IsNotFound(err)).To(BeTrue())
-			})
-
-			It("SEB contains rerun label", func() {
-				Expect(testSEB.GetLabels()).To(HaveKey(gitops.SnapshotIntegrationTestRun))
-			})
-
-		})
-
-	})
-
-	Describe("shouldScenarioRunInEphemeralEnv", func() {
-		It("returns true when env is defined in scenario", func() {
-			Expect(shouldScenarioRunInEphemeralEnv(integrationTestScenario)).To(BeTrue())
-		})
-
-		It("returns false when env is NOT defined in scenario", func() {
-			Expect(shouldScenarioRunInEphemeralEnv(integrationTestScenarioWithoutEnv)).To(BeFalse())
-		})
-	})
-
 })
+
+func getAllIntegrationPipelineRunsForSnapshot(ctx context.Context, snapshot *applicationapiv1alpha1.Snapshot) ([]tektonv1.PipelineRun, error) {
+	integrationPipelineRuns := &tektonv1.PipelineRunList{}
+	opts := []client.ListOption{
+		client.InNamespace(snapshot.Namespace),
+		client.MatchingLabels{
+			"pipelines.appstudio.openshift.io/type": "test",
+			"appstudio.openshift.io/snapshot":       snapshot.Name,
+		},
+	}
+	err := k8sClient.List(ctx, integrationPipelineRuns, opts...)
+
+	return integrationPipelineRuns.Items, err
+}

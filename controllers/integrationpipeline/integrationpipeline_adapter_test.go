@@ -716,10 +716,6 @@ var _ = Describe("Pipeline Adapter", Ordered, func() {
 					ContextKey: loader.DeploymentTargetClaimContextKey,
 					Resource:   deploymentTargetClaim,
 				},
-				{
-					ContextKey: loader.DeploymentTargetClassContextKey,
-					Resource:   deploymentTargetClass,
-				},
 			})
 
 			dtc, _ := adapter.loader.GetDeploymentTargetClaimForEnvironment(k8sClient, adapter.context, hasEnv)

@@ -367,19 +367,6 @@ func HasPipelineRunSucceeded(object client.Object) bool {
 	return false
 }
 
-// GetPipelineRunFailedReason returns a string indicating why the PipelineRun failed.
-// If the object passed to this function is not a PipelineRun, the function will return "".
-func GetPipelineRunFailedReason(object client.Object) string {
-	var reason string
-	reason = ""
-	if pr, ok := object.(*tektonv1.PipelineRun); ok {
-		if pr.Status.GetCondition(apis.ConditionSucceeded).IsFalse() {
-			reason = pr.Status.GetCondition(apis.ConditionSucceeded).GetReason()
-		}
-	}
-	return reason
-}
-
 // HasPipelineRunFinished returns a boolean indicating whether the PipelineRun finished or not.
 // If the object passed to this function is not a PipelineRun, the function will return false.
 func HasPipelineRunFinished(object client.Object) bool {
