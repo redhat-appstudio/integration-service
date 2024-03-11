@@ -69,6 +69,20 @@ var _ = Describe("integrationteststatus library unittests", func() {
 			Entry("When status is Invalid", intgteststat.IntegrationTestStatusTestInvalid, "TestInvalid"),
 		)
 
+		DescribeTable("Check IsFinal logic",
+			func(st intgteststat.IntegrationTestStatus, isFinal bool) {
+				result := st.IsFinal()
+				Expect(result).To(Equal(isFinal))
+			},
+			Entry("When status is Deleted", intgteststat.IntegrationTestStatusDeleted, true),
+			Entry("When status is DeploymentError", intgteststat.IntegrationTestStatusDeploymentError_Deprecated, true),
+			Entry("When status is EnvironmentProvisionError", intgteststat.IntegrationTestStatusEnvironmentProvisionError_Deprecated, true),
+			Entry("When status is TestFail", intgteststat.IntegrationTestStatusTestFail, true),
+			Entry("When status is TestPass", intgteststat.IntegrationTestStatusTestPassed, true),
+			Entry("When status is Invalid", intgteststat.IntegrationTestStatusTestInvalid, true),
+			Entry("When status is Other", intgteststat.IntegrationTestStatusPending, false),
+		)
+
 		It("Invalid status to type fails with error", func() {
 			_, err := intgteststat.IntegrationTestStatusString("Unknown")
 			Expect(err).NotTo(BeNil())

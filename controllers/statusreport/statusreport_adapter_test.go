@@ -260,6 +260,7 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 			// ReportSnapshotStatus must be called once
 			mockStatus.EXPECT().ReportSnapshotStatus(gomock.Any(), gomock.Any(), gomock.Any()).Times(1)
 
+			mockScenarios := []v1beta1.IntegrationTestScenario{}
 			adapter = NewAdapter(hasPRSnapshot, hasApp, logger, loader.NewMockLoader(), k8sClient, ctx)
 			adapter.status = mockStatus
 			adapter.context = toolkit.GetMockedContext(ctx, []toolkit.MockData{
@@ -270,6 +271,10 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 				{
 					ContextKey: loader.SnapshotContextKey,
 					Resource:   hasPRSnapshot,
+				},
+				{
+					ContextKey: loader.RequiredIntegrationTestScenariosContextKey,
+					Resource:   mockScenarios,
 				},
 			})
 			result, err := adapter.EnsureSnapshotTestStatusReportedToGitProvider()
