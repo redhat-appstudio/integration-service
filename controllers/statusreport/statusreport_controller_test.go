@@ -17,14 +17,15 @@ limitations under the License.
 package statusreport
 
 import (
+	"reflect"
+	"time"
+
+	"github.com/konflux-ci/operator-toolkit/metadata"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/redhat-appstudio/operator-toolkit/metadata"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	crwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
-	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"

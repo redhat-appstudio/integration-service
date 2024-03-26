@@ -22,12 +22,12 @@ import (
 	"reflect"
 	"time"
 
+	toolkit "github.com/konflux-ci/operator-toolkit/loader"
 	"github.com/redhat-appstudio/integration-service/api/v1beta1"
 	"github.com/redhat-appstudio/integration-service/gitops"
 	"github.com/redhat-appstudio/integration-service/helpers"
 	"github.com/redhat-appstudio/integration-service/loader"
 	intgteststat "github.com/redhat-appstudio/integration-service/pkg/integrationteststatus"
-	toolkit "github.com/redhat-appstudio/operator-toolkit/loader"
 
 	"knative.dev/pkg/apis"
 	v1 "knative.dev/pkg/apis/duck/v1"

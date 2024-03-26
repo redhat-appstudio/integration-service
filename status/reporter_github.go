@@ -29,7 +29,7 @@ import (
 	"github.com/redhat-appstudio/integration-service/gitops"
 	intgteststat "github.com/redhat-appstudio/integration-service/pkg/integrationteststatus"
 
-	"github.com/redhat-appstudio/operator-toolkit/metadata"
+	"github.com/konflux-ci/operator-toolkit/metadata"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"

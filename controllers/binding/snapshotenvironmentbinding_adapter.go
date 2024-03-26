@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/redhat-appstudio/operator-toolkit/controller"
-	"github.com/redhat-appstudio/operator-toolkit/metadata"
+	"github.com/konflux-ci/operator-toolkit/controller"
+	"github.com/konflux-ci/operator-toolkit/metadata"
 	"k8s.io/apimachinery/pkg/api/meta"
 	ctrl "sigs.k8s.io/controller-runtime"
 

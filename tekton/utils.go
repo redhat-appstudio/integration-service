@@ -19,8 +19,8 @@ package tekton
 import (
 	"fmt"
 
+	"github.com/konflux-ci/operator-toolkit/metadata"
 	h "github.com/redhat-appstudio/integration-service/helpers"
-	"github.com/redhat-appstudio/operator-toolkit/metadata"
 	tektonv1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
 	"knative.dev/pkg/apis"
 	"sigs.k8s.io/controller-runtime/pkg/client"

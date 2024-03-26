@@ -30,8 +30,8 @@ import (
 	applicationapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	intgteststat "github.com/redhat-appstudio/integration-service/pkg/integrationteststatus"
 
+	"github.com/konflux-ci/operator-toolkit/metadata"
 	"github.com/redhat-appstudio/integration-service/gitops"
-	"github.com/redhat-appstudio/operator-toolkit/metadata"
 )
 
 var _ = Describe("Snapshot integration test statuses", func() {

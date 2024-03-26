@@ -17,7 +17,7 @@ limitations under the License.
 package gitops
 
 import (
-	"github.com/redhat-appstudio/operator-toolkit/metadata"
+	"github.com/konflux-ci/operator-toolkit/metadata"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )

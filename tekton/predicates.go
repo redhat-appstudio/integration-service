@@ -17,8 +17,8 @@ limitations under the License.
 package tekton
 
 import (
+	"github.com/konflux-ci/operator-toolkit/metadata"
 	"github.com/redhat-appstudio/integration-service/helpers"
-	"github.com/redhat-appstudio/operator-toolkit/metadata"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )

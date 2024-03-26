@@ -30,11 +30,11 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	toolkit "github.com/konflux-ci/operator-toolkit/loader"
 	applicationapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	"github.com/redhat-appstudio/integration-service/loader"
 	intgteststat "github.com/redhat-appstudio/integration-service/pkg/integrationteststatus"
 	"github.com/redhat-appstudio/integration-service/status"
-	toolkit "github.com/redhat-appstudio/operator-toolkit/loader"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 

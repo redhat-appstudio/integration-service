@@ -21,8 +21,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/konflux-ci/operator-toolkit/metadata"
 	h "github.com/redhat-appstudio/integration-service/helpers"
-	"github.com/redhat-appstudio/operator-toolkit/metadata"
 	tektonv1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )

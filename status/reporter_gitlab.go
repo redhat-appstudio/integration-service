@@ -24,8 +24,8 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	"github.com/konflux-ci/operator-toolkit/metadata"
 	applicationapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	"github.com/redhat-appstudio/operator-toolkit/metadata"
 	gitlab "github.com/xanzy/go-gitlab"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 

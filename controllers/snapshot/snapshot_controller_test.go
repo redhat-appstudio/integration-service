@@ -17,9 +17,10 @@ limitations under the License.
 package snapshot
 
 import (
-	"github.com/redhat-appstudio/operator-toolkit/metadata"
 	"reflect"
 	"time"
+
+	"github.com/konflux-ci/operator-toolkit/metadata"
 
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	crwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"

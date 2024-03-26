@@ -18,13 +18,14 @@ package scenario
 
 import (
 	"context"
+
 	"github.com/redhat-appstudio/integration-service/loader"
 
 	"github.com/go-logr/logr"
+	"github.com/konflux-ci/operator-toolkit/controller"
 	applicationapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	"github.com/redhat-appstudio/integration-service/api/v1beta1"
 	"github.com/redhat-appstudio/integration-service/helpers"
-	"github.com/redhat-appstudio/operator-toolkit/controller"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
