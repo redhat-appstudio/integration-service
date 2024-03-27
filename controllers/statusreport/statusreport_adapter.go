@@ -21,11 +21,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/konflux-ci/operator-toolkit/controller"
 	applicationapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	"github.com/redhat-appstudio/operator-toolkit/controller"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/konflux-ci/operator-toolkit/metadata"
 	"github.com/redhat-appstudio/integration-service/api/v1beta1"
 	"github.com/redhat-appstudio/integration-service/gitops"
 	"github.com/redhat-appstudio/integration-service/helpers"
@@ -34,7 +35,6 @@ import (
 	intgteststat "github.com/redhat-appstudio/integration-service/pkg/integrationteststatus"
 	"github.com/redhat-appstudio/integration-service/status"
 	"github.com/redhat-appstudio/integration-service/tekton"
-	"github.com/redhat-appstudio/operator-toolkit/metadata"
 )
 
 const SnapshotRetryTimeout = time.Duration(3 * time.Hour)

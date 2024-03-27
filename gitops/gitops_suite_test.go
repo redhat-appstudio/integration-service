@@ -20,11 +20,12 @@ import (
 	"context"
 	"go/build"
 	"path/filepath"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"testing"
 
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+
+	toolkit "github.com/konflux-ci/operator-toolkit/test"
 	"github.com/redhat-appstudio/integration-service/cache"
-	toolkit "github.com/redhat-appstudio/operator-toolkit/test"
 
 	"k8s.io/client-go/rest"
 

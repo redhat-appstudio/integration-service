@@ -30,7 +30,7 @@ import (
 	intgteststat "github.com/redhat-appstudio/integration-service/pkg/integrationteststatus"
 	"github.com/redhat-appstudio/integration-service/tekton"
 
-	"github.com/redhat-appstudio/operator-toolkit/controller"
+	"github.com/konflux-ci/operator-toolkit/controller"
 	tektonv1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"

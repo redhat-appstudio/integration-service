@@ -17,7 +17,7 @@ limitations under the License.
 package loader
 
 import (
-	toolkit "github.com/redhat-appstudio/operator-toolkit/loader"
+	toolkit "github.com/konflux-ci/operator-toolkit/loader"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
