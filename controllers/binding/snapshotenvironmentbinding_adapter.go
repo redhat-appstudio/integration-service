@@ -146,7 +146,7 @@ func (a *Adapter) EnsureEphemeralEnvironmentsCleanedUp() (controller.OperationRe
 	if conditionStatus := gitops.GetBindingConditionStatus(a.snapshotEnvironmentBinding); conditionStatus != nil {
 		reasonMsg = fmt.Sprintf("%s (%s)", conditionStatus.Reason, conditionStatus.Message)
 	}
-	// we don't want to scare users prematurely, report error only after SEB timeout for trying to deploy
+	// we do not want to scare users prematurely, report error only after SEB timeout for trying to deploy
 	a.logger.Info(
 		fmt.Sprintf("SEB has been in the error state for more than the threshold time of %f seconds", SnapshotEnvironmentBindingErrorTimeoutSeconds),
 		"reason", reasonMsg,
