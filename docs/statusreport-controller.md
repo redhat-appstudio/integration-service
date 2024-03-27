@@ -67,10 +67,14 @@ flowchart TD
   collect_commit_info_gl(Collect commit projectID, repo-url and SHA from Snapshot)
   report_commit_status_gl(Create/update commitStatus on Gitlab)
 
-  is_snapshot_marked{Is <br>Snapshot marked as <br>passed/failed?}
-  remove_finalizer_from_all_intg_plr(Remove the finalizer from all the <br>Integration PLRs related to the Snapshot)
+  plr_loop(Iterate across Test Scenarios and associated PLRs)
+  does_plr_exist{Can the PLR be retrieved from the cluster?}
+  is_plr_final{Is the PLR in the final state?}
+  
+  remove_finalizer_from_plr(Remove the finalizer the PLR)
 
   continue_processing(Controller continues processing)
+  requeue_with_error(Controller requeues with error)
 
   %% Node connections
   predicate                      ---->    |"EnsureSnapshotTestStatusReportedToGitProvider()"|ensure
@@ -87,28 +91,32 @@ flowchart TD
   create_checkRunAdapter         --> does_checkRun_exist
   does_checkRun_exist            --Yes--> is_checkRun_update_needed
   does_checkRun_exist            --No--> create_new_checkRun_on_gh
-  create_new_checkRun_on_gh      --> is_snapshot_marked
+  create_new_checkRun_on_gh      --> plr_loop
   is_checkRun_update_needed      --Yes--> update_existing_checkRun_on_gh
-  is_checkRun_update_needed      --No--> is_snapshot_marked
-  update_existing_checkRun_on_gh --> is_snapshot_marked
+  is_checkRun_update_needed      --No--> plr_loop
+  update_existing_checkRun_on_gh --> plr_loop
 
   set_oAuth_token                --> get_all_commitStatuses_from_gh
   get_all_commitStatuses_from_gh --> create_commitStatusAdapter
   create_commitStatusAdapter     --> does_commitStatus_exist
-  does_commitStatus_exist        --Yes--> is_snapshot_marked
+  does_commitStatus_exist        --Yes--> plr_loop
   does_commitStatus_exist        --No--> create_new_commitStatus_on_gh
   create_new_commitStatus_on_gh  --> does_comment_exist
   does_comment_exist             --Yes--> update_existing_comment
   does_comment_exist             --No--> create_new_comment
-  update_existing_comment        --> is_snapshot_marked
-  create_new_comment             --> is_snapshot_marked
+  update_existing_comment        --> plr_loop
+  create_new_comment             --> plr_loop
 
   collect_commit_info_gl         --> report_commit_status_gl
-  report_commit_status_gl        --> is_snapshot_marked
+  report_commit_status_gl        --> plr_loop
 
-  is_snapshot_marked                 --Yes--> remove_finalizer_from_all_intg_plr
-  is_snapshot_marked                 --No --> continue_processing
-  remove_finalizer_from_all_intg_plr -->      continue_processing
+  plr_loop                       --> does_plr_exist
+  does_plr_exist                 --Yes--> is_plr_final
+  does_plr_exist                 --No--> plr_loop
+  is_plr_final                   --Yes--> remove_finalizer_from_plr
+  is_plr_final                   --No--> plr_loop
+  
+  remove_finalizer_from_plr -->      continue_processing
 
   %% Assigning styles to nodes
   class predicate Amber;

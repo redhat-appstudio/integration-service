@@ -19,6 +19,19 @@ func (i IntegrationTestStatus) String() string {
 	return _IntegrationTestStatusName[_IntegrationTestStatusIndex[i]:_IntegrationTestStatusIndex[i+1]]
 }
 
+func (i IntegrationTestStatus) IsFinal() bool{
+	switch i {
+	case IntegrationTestStatusDeleted,
+		IntegrationTestStatusDeploymentError_Deprecated,
+		IntegrationTestStatusEnvironmentProvisionError_Deprecated,
+		IntegrationTestStatusTestFail,
+		IntegrationTestStatusTestPassed,
+		IntegrationTestStatusTestInvalid:
+		return true
+	}
+	return false
+}
+
 var _IntegrationTestStatusValues = []IntegrationTestStatus{1, 2, 3, 4, 5, 6, 7, 8}
 
 var _IntegrationTestStatusNameToValueMap = map[string]IntegrationTestStatus{
