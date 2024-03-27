@@ -1,0 +1,44 @@
+---
+kind: CronJob
+apiVersion: batch/v1
+metadata:
+  name: spacerequest-garbage-collector
+spec:
+  schedule: "0 5 * * *" # every day at 5AM UTC
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          serviceAccountName: appstudio-pipeline
+          containers:
+            - name: cleanup-container
+              image: quay.io/redhat-user-workloads/rhtap-o11y-tenant/tools/tools:3e4c9a30e734aa34f57a084633ccfbb73d466fbd
+              command:
+                - /bin/bash
+                - -c
+                - |
+                #!/bin/bash
+
+                ALL_PIPELINERUNS=$(oc get pipelineruns -o=jsonpath='{.items[*].metadata.name}')
+                FINISHED_PIPELINERUNS=$(oc get pipelineruns -o=jsonpath='{.items[?(@.status.conditions[*].type=="Succeeded")].metadata.name}')
+                IFS=' ' read -ra PIPELINERUNS <<< "$FINISHED_PIPELINERUNS"
+
+                for SPACEREQUEST_NAME in $(oc get spacerequests -o=jsonpath='{.items[*].metadata.name}'); do
+                  if [ -n "$PIPELINERUN_NAME" ]; then
+                      if { echo "$FINISHED_PIPELINERUNS" | grep -q "$PIPELINERUN_NAME" || ! echo "$ALL_PIPELINERUNS" | grep -q "$PIPELINERUN_NAME"; }; then
+                          oc delete spacerequest $SPACEREQUEST_NAME
+                      fi
+                  fi
+                done
+              imagePullPolicy: Always
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 125Mi
+                limits:
+                  cpu: 250m
+                  memory: 125Mi
+              securityContext:
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
