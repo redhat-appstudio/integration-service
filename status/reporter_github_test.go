@@ -82,6 +82,7 @@ type CreateCommitStatusResult struct {
 	state         string
 	description   string
 	statusContext string
+	targetURL     string
 }
 
 type MockGitHubClient struct {
@@ -152,12 +153,13 @@ func (c *MockGitHubClient) GetExistingCommentID(comments []*ghapi.IssueComment, 
 	return nil
 }
 
-func (c *MockGitHubClient) CreateCommitStatus(ctx context.Context, owner string, repo string, SHA string, state string, description string, statusContext string) (int64, error) {
+func (c *MockGitHubClient) CreateCommitStatus(ctx context.Context, owner string, repo string, SHA string, state string, description string, statusContext string, targetURL string) (int64, error) {
 	var id int64 = 60
 	c.CreateCommitStatusResult.ID = id
 	c.CreateCommitStatusResult.state = state
 	c.CreateCommitStatusResult.description = description
 	c.CreateCommitStatusResult.statusContext = statusContext
+	c.CreateCommitStatusResult.targetURL = targetURL
 	return c.CreateCommitStatusResult.ID, c.CreateCommitStatusResult.Error
 }
 

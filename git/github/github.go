@@ -36,6 +36,7 @@ type CheckRunAdapter struct {
 	Name           string
 	SHA            string
 	ExternalID     string
+	DetailsURL     string
 	Conclusion     string
 	Title          string
 	Summary        string
@@ -52,6 +53,7 @@ type CommitStatusAdapter struct {
 	State       string
 	Description string
 	Context     string
+	TargetURL   string
 }
 
 // GetStatus returns the appropriate status based on conclusion and start time.
@@ -97,7 +99,7 @@ type ClientInterface interface {
 	UpdateCheckRun(ctx context.Context, checkRunID int64, cra *CheckRunAdapter) error
 	GetCheckRunID(ctx context.Context, owner string, repo string, SHA string, externalID string, appID int64) (*int64, error)
 	CreateComment(ctx context.Context, owner string, repo string, issueNumber int, body string) (int64, error)
-	CreateCommitStatus(ctx context.Context, owner string, repo string, SHA string, state string, description string, statusContext string) (int64, error)
+	CreateCommitStatus(ctx context.Context, owner string, repo string, SHA string, state string, description string, statusContext string, targetURL string) (int64, error)
 	GetAllCheckRunsForRef(ctx context.Context, owner string, repo string, SHA string, appID int64) ([]*ghapi.CheckRun, error)
 	GetExistingCheckRun(checkRuns []*ghapi.CheckRun, newCheckRun *CheckRunAdapter) *ghapi.CheckRun
 	GetAllCommitStatusesForRef(ctx context.Context, owner, repo, sha string) ([]*ghapi.RepoStatus, error)
@@ -232,6 +234,7 @@ func (c *Client) CreateCheckRun(ctx context.Context, cra *CheckRunAdapter) (*int
 		Name:       cra.Name,
 		HeadSHA:    cra.SHA,
 		ExternalID: &cra.ExternalID,
+		DetailsURL: &cra.DetailsURL,
 		Status:     &status,
 		Output: &ghapi.CheckRunOutput{
 			Title:   &cra.Title,
@@ -250,6 +253,11 @@ func (c *Client) CreateCheckRun(ctx context.Context, cra *CheckRunAdapter) (*int
 
 	if !cra.CompletionTime.IsZero() {
 		options.CompletedAt = &ghapi.Timestamp{Time: cra.CompletionTime}
+
+	}
+
+	if cra.DetailsURL != "" {
+		options.DetailsURL = &cra.DetailsURL
 	}
 
 	cr, _, err := c.GetChecksService().CreateCheckRun(ctx, cra.Owner, cra.Repository, options)
@@ -424,12 +432,12 @@ func (c *Client) GetAllCommentsForPR(ctx context.Context, owner string, repo str
 // CommitStatusExists returns if a match is found for the SHA, state, context and decription.
 func (c *Client) CommitStatusExists(res []*ghapi.RepoStatus, commitStatus *CommitStatusAdapter) (bool, error) {
 	for _, cs := range res {
-		if *cs.State == commitStatus.State && *cs.Description == commitStatus.Description && *cs.Context == commitStatus.Context {
-			c.logger.Info("Found CommitStatus with matching conditions", "CommitStatus.State", commitStatus.State, "CommitStatus.Description", commitStatus.Description, "CommitStatus.Context", commitStatus.Context)
+		if *cs.State == commitStatus.State && *cs.Description == commitStatus.Description && *cs.Context == commitStatus.Context && *cs.TargetURL == commitStatus.TargetURL {
+			c.logger.Info("Found CommitStatus with matching conditions", "CommitStatus.State", commitStatus.State, "CommitStatus.Description", commitStatus.Description, "CommitStatus.Context", commitStatus.Context, "CommitStatus.TargetURL", commitStatus.TargetURL)
 			return true, nil
 		}
 	}
-	c.logger.Info("Found no CommitStatus with matching conditions", "CommitStatus.State", commitStatus.State, "CommitStatus.Description", commitStatus.Description, "CommitStatus.Context", commitStatus.Context)
+	c.logger.Info("Found no CommitStatus with matching conditions", "CommitStatus.State", commitStatus.State, "CommitStatus.Description", commitStatus.Description, "CommitStatus.Context", commitStatus.Context, "CommitStatus.TargetURL", commitStatus.TargetURL)
 
 	return false, nil
 }
@@ -467,8 +475,8 @@ func (c *Client) EditComment(ctx context.Context, owner string, repo string, com
 }
 
 // CreateCommitStatus creates a repository commit status via the GitHub API.
-func (c *Client) CreateCommitStatus(ctx context.Context, owner string, repo string, SHA string, state string, description string, statusContext string) (int64, error) {
-	status, _, err := c.GetRepositoriesService().CreateStatus(ctx, owner, repo, SHA, &ghapi.RepoStatus{State: &state, Description: &description, Context: &statusContext})
+func (c *Client) CreateCommitStatus(ctx context.Context, owner string, repo string, SHA string, state string, description string, statusContext string, targetURL string) (int64, error) {
+	status, _, err := c.GetRepositoriesService().CreateStatus(ctx, owner, repo, SHA, &ghapi.RepoStatus{State: &state, Description: &description, Context: &statusContext, TargetURL: &targetURL})
 	if err != nil {
 		return 0, fmt.Errorf("failed to create an existing commitStatus for GitHub owner/repo/ref %s/%s/%s: %w", owner, repo, SHA, err)
 	}
