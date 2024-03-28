@@ -386,7 +386,7 @@ func (csu *CommitStatusUpdater) UpdateStatus(ctx context.Context, report TestRep
 	if !commitStatusExist {
 		csu.logger.Info("creating commit status for scenario test status of snapshot",
 			"snapshot.NameSpace", csu.snapshot.Namespace, "snapshot.Name", csu.snapshot.Name, "scenarioName", report.ScenarioName)
-		_, err = csu.ghClient.CreateCommitStatus(ctx, commitStatus.Owner, commitStatus.Repository, commitStatus.SHA, commitStatus.State, commitStatus.Description, commitStatus.Context)
+		_, err = csu.ghClient.CreateCommitStatus(ctx, commitStatus.Owner, commitStatus.Repository, commitStatus.SHA, commitStatus.State, commitStatus.Description, commitStatus.Context, commitStatus.TargetURL)
 		if err != nil {
 			return err
 		}

@@ -144,7 +144,8 @@ func (MockRepositoriesService) ListStatuses(
 	var state = "success"
 	var description = "example-description"
 	var context = "example-context"
-	repoStatus := &ghapi.RepoStatus{ID: &id, State: &state, Description: &description, Context: &context}
+	var target_url = "https://example.com"
+	repoStatus := &ghapi.RepoStatus{ID: &id, State: &state, Description: &description, Context: &context, TargetURL: &target_url}
 	return []*ghapi.RepoStatus{repoStatus}, nil, nil
 }
 
@@ -177,6 +178,7 @@ var _ = Describe("Client", func() {
 		Repository:     "example-repo",
 		SHA:            "abcdef1",
 		ExternalID:     "example-external-id",
+		DetailsURL:     "https://example.com",
 		Conclusion:     "Passed",
 		Title:          "example-title",
 		Summary:        "example-summary",
@@ -192,6 +194,7 @@ var _ = Describe("Client", func() {
 		State:       "success",
 		Description: "example-description",
 		Context:     "example-context",
+		TargetURL:   "https://example.com",
 	}
 
 	BeforeEach(func() {
@@ -236,9 +239,16 @@ var _ = Describe("Client", func() {
 	})
 
 	It("can create commit statuses", func() {
-		id, err := client.CreateCommitStatus(context.TODO(), "", "", "", "", "", "")
+		id, err := client.CreateCommitStatus(context.TODO(), "", "", "", "", "", "", "")
 		Expect(err).To(BeNil())
 		Expect(id).To(Equal(int64(50)))
+	})
+
+	It("can set and get details URL", func() {
+		detilsURL := "https://example.com/details"
+
+		checkRunAdapter.DetailsURL = detilsURL
+		Expect(checkRunAdapter.DetailsURL).To(Equal(detilsURL))
 	})
 
 	It("can create check runs", func() {
@@ -304,6 +314,7 @@ var _ = Describe("Client", func() {
 			State:       "failure",
 			Description: "example-description",
 			Context:     "example-context",
+			TargetURL:   "https://example.com",
 		}
 		commitStatusExist, err = client.CommitStatusExists(commitStatuses, commitStatusAdapter)
 		Expect(commitStatusExist).To(BeFalse())
