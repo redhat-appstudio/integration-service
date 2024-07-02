@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
-	"time"
 
 	"github.com/konflux-ci/integration-service/api/v1beta2"
 	"github.com/tonglil/buflogr"
@@ -41,7 +40,6 @@ import (
 	"github.com/konflux-ci/integration-service/gitops"
 	"github.com/konflux-ci/integration-service/helpers"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var _ = Describe("Snapshot Adapter", Ordered, func() {
@@ -385,13 +383,6 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 
 		})
 
-		It("ensures the global component list unchanged and compositeSnapshot shouldn't be created ", func() {
-			// Check if the global component list changed in the meantime and create a composite snapshot if it did.
-			compositeSnapshot, err := adapter.createCompositeSnapshotsIfConflictExists(hasApp, hasComp, hasSnapshot)
-			Expect(err).To(BeNil())
-			Expect(compositeSnapshot).To(BeNil())
-		})
-
 	})
 
 	When("New Adapter is created for a push-type Snapshot that failed one of the tests", func() {
@@ -542,95 +533,5 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 			})
 		})
 
-		It("ensures the component Snapshot is marked as invalid when the global component list is changed", func() {
-			result, err := adapter.EnsureSnapshotFinishedAllTests()
-			Expect(!result.RequeueRequest && !result.CancelRequest && err == nil).To(BeTrue())
-
-			condition := meta.FindStatusCondition(hasSnapshot.Status.Conditions, gitops.AppStudioIntegrationStatusCondition)
-			Expect(condition.Status).NotTo(BeNil())
-			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
-			Expect(condition.Reason).To(Equal("Invalid"))
-
-			expectedLogEntry := "The global component list has changed in the meantime, marking snapshot as Invalid"
-			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
-			expectedLogEntry = "CompositeSnapshot created"
-			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
-
-			compositeSnapshots := &applicationapiv1alpha1.SnapshotList{}
-			opts := []client.ListOption{
-				client.InNamespace(hasApp.Namespace),
-				client.MatchingLabels{
-					gitops.SnapshotTypeLabel: gitops.SnapshotCompositeType,
-				},
-			}
-			Eventually(func() error {
-				if err := k8sClient.List(adapter.context, compositeSnapshots, opts...); err != nil {
-					return err
-				}
-
-				if expected, got := 1, len(compositeSnapshots.Items); expected != got {
-					return fmt.Errorf("found %d composite Snapshots, expected: %d", got, expected)
-				}
-				return nil
-			}, time.Second*10).Should(BeNil())
-
-			compositeSnapshot := &compositeSnapshots.Items[0]
-			Expect(compositeSnapshot).NotTo(BeNil())
-
-			// Check if the composite snapshot that was already created above was correctly detected and returned.
-			adapter.context = toolkit.GetMockedContext(ctx, []toolkit.MockData{
-				{
-					ContextKey: loader.ApplicationContextKey,
-					Resource:   hasApp,
-				},
-				{
-					ContextKey: loader.ComponentContextKey,
-					Resource:   hasComp,
-				},
-				{
-					ContextKey: loader.SnapshotContextKey,
-					Resource:   hasSnapshot,
-				},
-				{
-					ContextKey: loader.ApplicationComponentsContextKey,
-					Resource:   []applicationapiv1alpha1.Component{*hasComp, *hasComp2},
-				},
-				{
-					ContextKey: loader.AllSnapshotsContextKey,
-					Resource:   []applicationapiv1alpha1.Snapshot{*compositeSnapshot},
-				},
-			})
-			existingCompositeSnapshot, err := adapter.createCompositeSnapshotsIfConflictExists(hasApp, hasComp, hasSnapshot)
-			Expect(err).To(BeNil())
-			Expect(existingCompositeSnapshot).NotTo(BeNil())
-			Expect(existingCompositeSnapshot.Name).To(Equal(compositeSnapshot.Name))
-
-			expectedLogEntry = "Found existing composite Snapshot"
-			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
-
-			componentSource, _ := adapter.getComponentSourceFromSnapshotComponent(existingCompositeSnapshot, hasComp2)
-			Expect(componentSource.GitSource.Revision).To(Equal("lastbuiltcommit"))
-
-			componentImagePullSpec, _ := adapter.getImagePullSpecFromSnapshotComponent(existingCompositeSnapshot, hasComp2)
-			Expect(componentImagePullSpec).To(Equal(SampleImage))
-		})
-
-		It("ensures that Labels and Annotations were coppied to composite snapshot from PR snapshot", func() {
-			copyToCompositeSnapshot, err := adapter.createCompositeSnapshotsIfConflictExists(hasApp, hasComp, hasSnapshot)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(copyToCompositeSnapshot).NotTo(BeNil())
-
-			gitops.CopySnapshotLabelsAndAnnotation(hasApp, copyToCompositeSnapshot, hasComp.Name, &hasPRSnapshot.ObjectMeta, gitops.PipelinesAsCodePrefix, true)
-			Expect(copyToCompositeSnapshot.Labels[gitops.SnapshotTypeLabel]).To(Equal(gitops.SnapshotCompositeType))
-			Expect(copyToCompositeSnapshot.Labels[gitops.SnapshotComponentLabel]).To(Equal(hasComp.Name))
-			Expect(copyToCompositeSnapshot.Labels[gitops.ApplicationNameLabel]).To(Equal(hasApp.Name))
-			Expect(copyToCompositeSnapshot.Labels["pac.test.appstudio.openshift.io/url-org"]).To(Equal("testorg"))
-			Expect(copyToCompositeSnapshot.Labels["pac.test.appstudio.openshift.io/url-repository"]).To(Equal("testrepo"))
-			Expect(copyToCompositeSnapshot.Labels["pac.test.appstudio.openshift.io/sha"]).To(Equal("testsha"))
-
-			Expect(copyToCompositeSnapshot.Annotations[gitops.PipelineAsCodeInstallationIDAnnotation]).To(Equal("123"))
-
-		})
 	})
 })

@@ -415,7 +415,7 @@ var _ = Describe("Pipeline Adapter", Ordered, func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(copyToSnapshot).NotTo(BeNil())
 
-			gitops.CopySnapshotLabelsAndAnnotation(hasApp, copyToSnapshot, hasComp.Name, &buildPipelineRun.ObjectMeta, gitops.BuildPipelineRunPrefix, false)
+			gitops.CopySnapshotLabelsAndAnnotation(hasApp, copyToSnapshot, hasComp.Name, &buildPipelineRun.ObjectMeta, gitops.BuildPipelineRunPrefix)
 			Expect(copyToSnapshot.Labels[gitops.SnapshotTypeLabel]).To(Equal(gitops.SnapshotComponentType))
 			Expect(copyToSnapshot.Labels[gitops.SnapshotComponentLabel]).To(Equal(hasComp.Name))
 			Expect(copyToSnapshot.Labels[gitops.ApplicationNameLabel]).To(Equal(hasApp.Name))

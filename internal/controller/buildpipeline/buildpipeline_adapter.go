@@ -210,7 +210,7 @@ func (a *Adapter) prepareSnapshotForPipelineRun(pipelineRun *tektonv1.PipelineRu
 		return nil, err
 	}
 
-	gitops.CopySnapshotLabelsAndAnnotation(application, snapshot, a.component.Name, &pipelineRun.ObjectMeta, gitops.BuildPipelineRunPrefix, false)
+	gitops.CopySnapshotLabelsAndAnnotation(application, snapshot, a.component.Name, &pipelineRun.ObjectMeta, gitops.BuildPipelineRunPrefix)
 
 	snapshot.Labels[gitops.BuildPipelineRunNameLabel] = pipelineRun.Name
 	if pipelineRun.Status.CompletionTime != nil {
