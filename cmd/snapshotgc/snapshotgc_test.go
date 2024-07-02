@@ -376,6 +376,15 @@ var _ = Describe("Test garbage collection for snapshots", func() {
 					CreationTimestamp: metav1.NewTime(currentTime.Add(time.Hour * 10)),
 				},
 			}
+			overrideSnap := &applicationapiv1alpha1.Snapshot{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "override-snapshot",
+					CreationTimestamp: metav1.NewTime(currentTime),
+					Labels: map[string]string{
+						"test.appstudio.openshift.io/type": "override",
+					},
+				},
+			}
 
 			cl := fake.NewClientBuilder().
 				WithScheme(scheme).
@@ -383,19 +392,20 @@ var _ = Describe("Test garbage collection for snapshots", func() {
 					&applicationapiv1alpha1.SnapshotList{
 						Items: []applicationapiv1alpha1.Snapshot{
 							*newerPRSnap, *olderPRSnap, *anotherOldPRSnap,
-							*newerNonPRSnap, *olderNonPRSnap,
+							*newerNonPRSnap, *olderNonPRSnap, *overrideSnap,
 						},
 					}).Build()
 			candidates := []applicationapiv1alpha1.Snapshot{
 				*newerPRSnap, *olderPRSnap, *newerNonPRSnap, *olderNonPRSnap,
-				*anotherOldPRSnap,
+				*anotherOldPRSnap, *overrideSnap,
 			}
 			output := getSnapshotsForRemoval(cl, candidates, 1, 1, logger)
 
-			Expect(output).To(HaveLen(3))
+			Expect(output).To(HaveLen(4))
 			Expect(output[0].Name).To(Equal("older-non-pr-snapshot"))
 			Expect(output[1].Name).To(Equal("another-old-pr-snapshot"))
 			Expect(output[2].Name).To(Equal("older-pr-snapshot"))
+			Expect(output[3].Name).To(Equal("override-snapshot"))
 		})
 	})
 

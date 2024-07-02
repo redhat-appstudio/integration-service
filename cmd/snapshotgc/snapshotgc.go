@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/go-logr/logr"
+	"github.com/konflux-ci/operator-toolkit/metadata"
 	releasev1alpha1 "github.com/konflux-ci/release-service/api/v1alpha1"
 	applicationapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	zap2 "go.uber.org/zap"
@@ -135,7 +136,7 @@ func getSnapshotsForNSReleases(
 	return snapToData, nil
 }
 
-// Gets all namespace snapshots that aren't associated with a release/binding
+// Gets all namespace snapshots that aren't associated with a release
 func getUnassociatedNSSnapshots(
 	cl client.Client,
 	snapToData map[string]snapshotData,
@@ -188,8 +189,11 @@ func getSnapshotsForRemoval(
 	keptNonPrSnaps := 0
 
 	for _, snap := range snapshots {
+		snap := snap
 		label, found := snap.GetLabels()["pac.test.appstudio.openshift.io/event-type"]
-		if !found || label == "push" || label == "Push" {
+		isOverrideSnapshot := metadata.HasLabelWithValue(&snap, "test.appstudio.openshift.io/type", "override")
+		// override snapshot does not have the event-type label, but we still want to add it to the cleanup list
+		if !found || label == "push" || label == "Push" || isOverrideSnapshot {
 			if keptNonPrSnaps < nonPrSnapshotsToKeep {
 				logger.V(1).Info(
 					"Skipping non-PR candidate snapshot",
