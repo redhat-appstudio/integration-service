@@ -621,7 +621,7 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(copyToCompositeSnapshot).NotTo(BeNil())
 
-			gitops.CopySnapshotLabelsAndAnnotation(hasApp, copyToCompositeSnapshot, hasComp.Name, &hasPRSnapshot.ObjectMeta, gitops.PipelinesAsCodePrefix, true)
+			gitops.CopySnapshotLabelsAndAnnotation(hasApp, copyToCompositeSnapshot, hasComp.Name, &hasPRSnapshot.ObjectMeta, []string{gitops.PipelinesAsCodePrefix}, true)
 			Expect(copyToCompositeSnapshot.Labels[gitops.SnapshotTypeLabel]).To(Equal(gitops.SnapshotCompositeType))
 			Expect(copyToCompositeSnapshot.Labels[gitops.SnapshotComponentLabel]).To(Equal(hasComp.Name))
 			Expect(copyToCompositeSnapshot.Labels[gitops.ApplicationNameLabel]).To(Equal(hasApp.Name))

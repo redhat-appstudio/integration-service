@@ -71,6 +71,7 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 		sample_image    = "quay.io/redhat-appstudio/sample-image"
 		sample_revision = "random-value"
 		sampleDigest    = "sha256:841328df1b9f8c4087adbdcfec6cc99ac8308805dea83f6d415d6fb8d40227c1"
+		customLabel     = "custom.appstudio.openshift.io/custom-label"
 	)
 
 	BeforeAll(func() {
@@ -184,6 +185,7 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 					gitops.SnapshotComponentLabel:         "component-sample",
 					"build.appstudio.redhat.com/pipeline": "enterprise-contract",
 					gitops.PipelineAsCodeEventTypeLabel:   "push",
+					customLabel:                           "custom-label",
 				},
 				Annotations: map[string]string{
 					gitops.PipelineAsCodeInstallationIDAnnotation:   "123",
@@ -601,11 +603,12 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 			Expect(buf.String()).Should(ContainSubstring(expectedLogEntry))
 		})
 
-		It("ensures build labels/annotations prefixed with 'build.appstudio' are propagated from snapshot to Integration test PLR", func() {
+		It("ensures build, PaC, test, and custom labels/annotations are propagated from snapshot to Integration test PLR", func() {
 			pipelineRun, err := adapter.createIntegrationPipelineRun(hasApp, integrationTestScenario, hasSnapshot)
 			Expect(err).To(BeNil())
 			Expect(pipelineRun).ToNot(BeNil())
 
+			// build annotations and labels prefixed with `build.appstudio` are copied
 			annotation, found := pipelineRun.GetAnnotations()["build.appstudio.redhat.com/commit_sha"]
 			Expect(found).To(BeTrue())
 			Expect(annotation).To(Equal("6c65b2fcaea3e1a0a92476c8b5dc89e92a85f025"))
@@ -613,9 +616,31 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 			label, found := pipelineRun.GetLabels()["build.appstudio.redhat.com/pipeline"]
 			Expect(found).To(BeTrue())
 			Expect(label).To(Equal("enterprise-contract"))
+
+			// Pac labels prefixed with 'pac.test.appstudio.openshift.io' are copied
+			_, found = hasSnapshot.GetLabels()[gitops.PipelineAsCodeEventTypeLabel]
+			Expect(found).To(BeTrue())
+			label, found = pipelineRun.GetLabels()[gitops.PipelineAsCodeEventTypeLabel]
+			Expect(found).To(BeTrue())
+			Expect(label).To(Equal(hasSnapshot.GetLabels()[gitops.PipelineAsCodeEventTypeLabel]))
+
+			// test labels prefixed with 'test.appstudio.openshift.io' are copied
+			_, found = hasSnapshot.GetLabels()[gitops.SnapshotTypeLabel]
+			Expect(found).To(BeTrue())
+			label, found = pipelineRun.GetLabels()[gitops.SnapshotTypeLabel]
+			Expect(found).To(BeTrue())
+			Expect(label).To(Equal(hasSnapshot.GetLabels()[gitops.SnapshotTypeLabel]))
+
+			// custom labels prefixed with 'custom.appstudio.openshift.io' are copied
+			_, found = hasSnapshot.GetLabels()[customLabel]
+			Expect(found).To(BeTrue())
+			label, found = pipelineRun.GetLabels()[customLabel]
+			Expect(found).To(BeTrue())
+			Expect(label).To(Equal(hasSnapshot.GetLabels()[customLabel]))
+
 		})
 
-		It("ensures build labels/annotations non-prefixed with 'build.appstudio' are NOT propagated from snapshot to Integration test PLR", func() {
+		It("ensures other labels/annotations are NOT propagated from snapshot to Integration test PLR", func() {
 			pipelineRun, err := adapter.createIntegrationPipelineRun(hasApp, integrationTestScenario, hasSnapshot)
 			Expect(err).To(BeNil())
 			Expect(pipelineRun).ToNot(BeNil())
@@ -625,13 +650,6 @@ var _ = Describe("Snapshot Adapter", Ordered, func() {
 			Expect(found).To(BeTrue())
 			_, found = pipelineRun.GetAnnotations()["appstudio.redhat.com/updateComponentOnSuccess"]
 			Expect(found).To(BeFalse())
-
-			// build labels non-prefixed with 'build.appstudio' are not copied
-			_, found = hasSnapshot.GetLabels()[gitops.SnapshotTypeLabel]
-			Expect(found).To(BeTrue())
-			_, found = pipelineRun.GetLabels()[gitops.SnapshotTypeLabel]
-			Expect(found).To(BeFalse())
-
 		})
 
 		When("pull request updates repo with integration test", func() {

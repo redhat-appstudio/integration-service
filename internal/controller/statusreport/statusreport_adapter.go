@@ -310,7 +310,7 @@ func (a *Adapter) createCompositeSnapshotsIfConflictExists(application *applicat
 		return nil, err
 	}
 
-	gitops.CopySnapshotLabelsAndAnnotation(application, compositeSnapshot, component.Name, &testedSnapshot.ObjectMeta, gitops.PipelinesAsCodePrefix, true)
+	gitops.CopySnapshotLabelsAndAnnotation(application, compositeSnapshot, component.Name, &testedSnapshot.ObjectMeta, []string{gitops.PipelinesAsCodePrefix}, true)
 
 	// Create the new composite snapshot if it doesn't exist already
 	if !gitops.CompareSnapshots(compositeSnapshot, testedSnapshot) {

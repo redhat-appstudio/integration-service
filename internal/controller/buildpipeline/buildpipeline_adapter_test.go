@@ -70,6 +70,7 @@ var _ = Describe("Pipeline Adapter", Ordered, func() {
 		SampleImageWithoutDigest = "quay.io/redhat-appstudio/sample-image"
 		SampleImage              = SampleImageWithoutDigest + "@" + SampleDigest
 		invalidDigest            = "invalidDigest"
+		customLabel              = "custom.appstudio.openshift.io/custom-label"
 	)
 
 	BeforeAll(func() {
@@ -256,8 +257,9 @@ var _ = Describe("Pipeline Adapter", Ordered, func() {
 					"pipelines.openshift.io/runtime":           "nodejs",
 					"pipelines.openshift.io/strategy":          "s2i",
 					"appstudio.openshift.io/component":         "component-sample",
-					"pipelinesascode.tekton.dev/event-type":    "pull_request",
 					"build.appstudio.redhat.com/target_branch": "main",
+					"pipelinesascode.tekton.dev/event-type":    "pull_request",
+					customLabel:                                "custom-label",
 				},
 				Annotations: map[string]string{
 					"appstudio.redhat.com/updateComponentOnSuccess": "false",
@@ -415,12 +417,15 @@ var _ = Describe("Pipeline Adapter", Ordered, func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(copyToSnapshot).NotTo(BeNil())
 
-			gitops.CopySnapshotLabelsAndAnnotation(hasApp, copyToSnapshot, hasComp.Name, &buildPipelineRun.ObjectMeta, gitops.BuildPipelineRunPrefix, false)
+			prefixes := []string{gitops.BuildPipelineRunPrefix, gitops.CustomLabelPrefix, gitops.TestLabelPrefix}
+			gitops.CopySnapshotLabelsAndAnnotation(hasApp, copyToSnapshot, hasComp.Name, &buildPipelineRun.ObjectMeta, prefixes, false)
 			Expect(copyToSnapshot.Labels[gitops.SnapshotTypeLabel]).To(Equal(gitops.SnapshotComponentType))
 			Expect(copyToSnapshot.Labels[gitops.SnapshotComponentLabel]).To(Equal(hasComp.Name))
 			Expect(copyToSnapshot.Labels[gitops.ApplicationNameLabel]).To(Equal(hasApp.Name))
 			Expect(copyToSnapshot.Labels["build.appstudio.redhat.com/target_branch"]).To(Equal("main"))
 			Expect(copyToSnapshot.Annotations["build.appstudio.openshift.io/repo"]).To(Equal("https://github.com/devfile-samples/devfile-sample-go-basic?rev=c713067b0e65fb3de50d1f7c457eb51c2ab0dbb0"))
+			Expect(copyToSnapshot.Labels[gitops.PipelineAsCodeEventTypeLabel]).To(Equal(buildPipelineRun.Labels["pipelinesascode.tekton.dev/event-type"]))
+			Expect(copyToSnapshot.Labels[customLabel]).To(Equal(buildPipelineRun.Labels[customLabel]))
 
 		})
 

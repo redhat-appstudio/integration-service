@@ -37,8 +37,17 @@ const (
 	// PipelinesLabelPrefix is the prefix of the pipelines label
 	PipelinesLabelPrefix = "pipelines.appstudio.openshift.io"
 
-	// TestLabelPrefix is the prefix of the test labels
+	// TestLabelPrefix contains the prefix applied to labels and annotations related to testing.
 	TestLabelPrefix = "test.appstudio.openshift.io"
+
+	// PipelinesAsCodePrefix contains the prefix applied to labels and annotations copied from Pipelines as Code resources.
+	PipelinesAsCodePrefix = "pac.test.appstudio.openshift.io"
+
+	// BuildPipelineRunPrefix contains the build pipeline run related labels and annotations
+	BuildPipelineRunPrefix = "build.appstudio"
+
+	// CustomLabelPrefix contains the prefix applied to custom user-defined labels and annotations.
+	CustomLabelPrefix = "custom.appstudio.openshift.io"
 
 	// resource labels for snapshot, application and component
 	ResourceLabelSuffix = "appstudio.openshift.io"
@@ -202,6 +211,14 @@ func (r *IntegrationPipelineRun) WithSnapshot(snapshot *applicationapiv1alpha1.S
 	componentLabel, found := snapshot.GetLabels()[ComponentNameLabel]
 	if found {
 		r.ObjectMeta.Labels[ComponentNameLabel] = componentLabel
+	}
+
+	// copy PipelineRun PAC, build, test and custom annotations/labels from Snapshot to integration test PipelineRun
+	prefixes := []string{PipelinesAsCodePrefix, BuildPipelineRunPrefix, TestLabelPrefix, CustomLabelPrefix}
+	for _, prefix := range prefixes {
+		// Copy labels and annotations prefixed with defined prefix
+		_ = metadata.CopyAnnotationsByPrefix(&snapshot.ObjectMeta, &r.ObjectMeta, prefix)
+		_ = metadata.CopyLabelsByPrefix(&snapshot.ObjectMeta, &r.ObjectMeta, prefix)
 	}
 
 	return r
