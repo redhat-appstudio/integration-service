@@ -563,13 +563,6 @@ func (a *Adapter) createIntegrationPipelineRun(application *applicationapiv1alph
 	}
 
 	pipelineRun := pipelineRunBuilder.AsPipelineRun()
-	// copy PipelineRun PAC annotations/labels from snapshot to integration test PipelineRuns
-	_ = metadata.CopyAnnotationsByPrefix(&snapshot.ObjectMeta, &pipelineRun.ObjectMeta, gitops.PipelinesAsCodePrefix)
-	_ = metadata.CopyLabelsByPrefix(&snapshot.ObjectMeta, &pipelineRun.ObjectMeta, gitops.PipelinesAsCodePrefix)
-
-	// Copy build labels and annotations prefixed with build.appstudio from snapshot to integration test PipelineRuns
-	_ = metadata.CopyLabelsByPrefix(&snapshot.ObjectMeta, &pipelineRun.ObjectMeta, gitops.BuildPipelineRunPrefix)
-	_ = metadata.CopyAnnotationsByPrefix(&snapshot.ObjectMeta, &pipelineRun.ObjectMeta, gitops.BuildPipelineRunPrefix)
 
 	err := ctrl.SetControllerReference(snapshot, pipelineRun, a.client.Scheme())
 	if err != nil {
