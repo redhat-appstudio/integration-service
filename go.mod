@@ -1,6 +1,7 @@
 module github.com/konflux-ci/integration-service
 
 go 1.21
+toolchain go1.22.4
 
 require (
 	github.com/agiledragon/gomonkey/v2 v2.11.0
@@ -23,7 +24,7 @@ require (
 	go.uber.org/zap v1.27.0
 	golang.org/x/oauth2 v0.21.0
 	k8s.io/api v0.29.4
-	k8s.io/apimachinery v0.29.4
+	k8s.io/apimachinery v0.30.2
 	k8s.io/client-go v1.5.2
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/utils v0.0.0-20240310230437-4693a0247e57
