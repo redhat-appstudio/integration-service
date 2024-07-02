@@ -23,7 +23,6 @@ import (
 
 	"github.com/konflux-ci/operator-toolkit/controller"
 	applicationapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/konflux-ci/integration-service/api/v1beta2"
@@ -31,10 +30,7 @@ import (
 	"github.com/konflux-ci/integration-service/helpers"
 	"github.com/konflux-ci/integration-service/loader"
 	intgteststat "github.com/konflux-ci/integration-service/pkg/integrationteststatus"
-	"github.com/konflux-ci/integration-service/pkg/metrics"
 	"github.com/konflux-ci/integration-service/status"
-	"github.com/konflux-ci/integration-service/tekton"
-	"github.com/konflux-ci/operator-toolkit/metadata"
 	tektonv1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -122,8 +118,6 @@ func (a *Adapter) EnsureSnapshotTestStatusReportedToGitProvider() (controller.Op
 
 // EnsureSnapshotFinishedAllTests is an operation that will ensure that a pipeline Snapshot
 // to the PipelineRun being processed finished and passed all tests for all defined required IntegrationTestScenarios.
-// If the Snapshot doesn't have the freshest state of components, a composite Snapshot will be created instead
-// and the original Snapshot will be marked as Invalid.
 func (a *Adapter) EnsureSnapshotFinishedAllTests() (controller.OperationResult, error) {
 	// Get all required integrationTestScenarios for the Application and then use the Snapshot status annotation
 	// to check if all Integration tests were finished for that Snapshot
@@ -178,46 +172,6 @@ func (a *Adapter) EnsureSnapshotFinishedAllTests() (controller.OperationResult, 
 		a.logger.LogAuditEvent(finishedStatusMessage, a.snapshot, helpers.LogActionUpdate)
 	}
 
-	// If the Snapshot is a component type, check if the global component list changed in the meantime and
-	// create a composite snapshot if it did. Does not apply for PAC pull request events.
-	if metadata.HasLabelWithValue(a.snapshot, gitops.SnapshotTypeLabel, gitops.SnapshotComponentType) && gitops.IsSnapshotCreatedByPACPushEvent(a.snapshot) {
-		var component *applicationapiv1alpha1.Component
-		err = retry.OnError(retry.DefaultRetry, func(_ error) bool { return true }, func() error {
-			component, err = a.loader.GetComponentFromSnapshot(a.context, a.client, a.snapshot)
-			return err
-		})
-		if err != nil {
-			if _, err = helpers.HandleLoaderError(a.logger, err, fmt.Sprintf("Component or '%s' label", tekton.ComponentNameLabel), "Snapshot"); err != nil {
-				return controller.RequeueWithError(err)
-			}
-			return controller.ContinueProcessing()
-		}
-
-		compositeSnapshot, err := a.createCompositeSnapshotsIfConflictExists(a.application, component, a.snapshot)
-		if err != nil {
-			a.logger.Error(err, "Failed to determine if a composite snapshot needs to be created because of a conflict",
-				"snapshot.Name", a.snapshot.Name)
-			return controller.RequeueWithError(err)
-		}
-
-		if compositeSnapshot != nil {
-			a.logger.Info("The global component list has changed in the meantime, marking snapshot as Invalid",
-				"snapshot.Name", a.snapshot.Name)
-			if !gitops.IsSnapshotMarkedAsInvalid(a.snapshot) {
-				err = gitops.MarkSnapshotAsInvalid(a.context, a.client, a.snapshot,
-					"The global component list has changed in the meantime, superseding with a composite snapshot")
-				if err != nil {
-					a.logger.Error(err, "Failed to update the status to Invalid for the snapshot",
-						"snapshot.Name", a.snapshot.Name)
-					return controller.RequeueWithError(err)
-				}
-				a.logger.LogAuditEvent("Snapshot integration status condition marked as invalid, the global component list has changed in the meantime",
-					a.snapshot, helpers.LogActionUpdate)
-			}
-			return controller.ContinueProcessing()
-		}
-	}
-
 	// If all Integration Pipeline runs passed, mark the snapshot as succeeded, otherwise mark it as failed
 	// This updates the Snapshot resource on the cluster
 	if allIntegrationTestsPassed {
@@ -269,95 +223,6 @@ func (a *Adapter) determineIfAllRequiredIntegrationTestsFinishedAndPassed(integr
 	}
 	a.logger.Info(fmt.Sprintf("%[1]d out of %[3]d required integration tests finished, %[2]d out of %[3]d required integration tests passed", integrationTestsFinished, integrationTestsPassed, len(*integrationTestScenarios)))
 	return allIntegrationTestsFinished, allIntegrationTestsPassed
-}
-
-// prepareCompositeSnapshot prepares the Composite Snapshot for a given application,
-// component, containerImage and containerSource. In case the Snapshot can't be created, an error will be returned.
-func (a *Adapter) prepareCompositeSnapshot(application *applicationapiv1alpha1.Application, component *applicationapiv1alpha1.Component, newContainerImage string, newComponentSource *applicationapiv1alpha1.ComponentSource) (*applicationapiv1alpha1.Snapshot, error) {
-	applicationComponents, err := a.loader.GetAllApplicationComponents(a.context, a.client, application)
-	if err != nil {
-		return nil, err
-	}
-
-	snapshot, err := gitops.PrepareSnapshot(a.context, a.client, application, applicationComponents, component, newContainerImage, newComponentSource)
-	if err != nil {
-		return nil, err
-	}
-
-	if snapshot.Labels == nil {
-		snapshot.Labels = map[string]string{}
-	}
-	snapshot.Labels[gitops.SnapshotTypeLabel] = gitops.SnapshotCompositeType
-
-	return snapshot, nil
-}
-
-// createCompositeSnapshotsIfConflictExists checks if the component Snapshot is good to release by checking if any
-// of the other components containerImages changed in the meantime. If any of them changed, it creates a new composite snapshot.
-func (a *Adapter) createCompositeSnapshotsIfConflictExists(application *applicationapiv1alpha1.Application, component *applicationapiv1alpha1.Component, testedSnapshot *applicationapiv1alpha1.Snapshot) (*applicationapiv1alpha1.Snapshot, error) {
-	newContainerImage, err := a.getImagePullSpecFromSnapshotComponent(testedSnapshot, component)
-	if err != nil {
-		return nil, err
-	}
-
-	newComponentSource, err := a.getComponentSourceFromSnapshotComponent(testedSnapshot, component)
-	if err != nil {
-		return nil, err
-	}
-
-	compositeSnapshot, err := a.prepareCompositeSnapshot(application, component, newContainerImage, newComponentSource)
-	if err != nil {
-		return nil, err
-	}
-
-	gitops.CopySnapshotLabelsAndAnnotation(application, compositeSnapshot, component.Name, &testedSnapshot.ObjectMeta, gitops.PipelinesAsCodePrefix, true)
-
-	// Create the new composite snapshot if it doesn't exist already
-	if !gitops.CompareSnapshots(compositeSnapshot, testedSnapshot) {
-		allSnapshots, err := a.loader.GetAllSnapshots(a.context, a.client, application)
-		if err != nil {
-			return nil, err
-		}
-		existingCompositeSnapshot := gitops.FindMatchingSnapshot(a.application, allSnapshots, compositeSnapshot)
-
-		if existingCompositeSnapshot != nil {
-			a.logger.Info("Found existing composite Snapshot",
-				"snapshot.Name", existingCompositeSnapshot.Name,
-				"snapshot.Spec.Components", existingCompositeSnapshot.Spec.Components)
-			return existingCompositeSnapshot, nil
-		} else {
-			err = a.client.Create(a.context, compositeSnapshot)
-			if err != nil {
-				return nil, err
-			}
-			go metrics.RegisterNewSnapshot()
-			a.logger.LogAuditEvent("CompositeSnapshot created", compositeSnapshot, helpers.LogActionAdd,
-				"snapshot.Spec.Components", compositeSnapshot.Spec.Components)
-			return compositeSnapshot, nil
-		}
-	}
-
-	return nil, nil
-}
-
-// getImagePullSpecFromSnapshotComponent gets the full image pullspec from the given Snapshot Component,
-func (a *Adapter) getImagePullSpecFromSnapshotComponent(snapshot *applicationapiv1alpha1.Snapshot, component *applicationapiv1alpha1.Component) (string, error) {
-	for _, snapshotComponent := range snapshot.Spec.Components {
-		if snapshotComponent.Name == component.Name {
-			return snapshotComponent.ContainerImage, nil
-		}
-	}
-	return "", fmt.Errorf("couldn't find the requested component info in the given Snapshot")
-}
-
-// getComponentSourceFromSnapshotComponent gets the component source from the given Snapshot for the given Component,
-func (a *Adapter) getComponentSourceFromSnapshotComponent(snapshot *applicationapiv1alpha1.Snapshot, component *applicationapiv1alpha1.Component) (*applicationapiv1alpha1.ComponentSource, error) {
-	for _, snapshotComponent := range snapshot.Spec.Components {
-		if snapshotComponent.Name == component.Name {
-			return &snapshotComponent.Source, nil
-		}
-	}
-	return nil, fmt.Errorf("couldn't find the requested component source info in the given Snapshot")
 }
 
 // findUntriggeredIntegrationTestFromStatus returns name of integrationTestScenario that is not triggered yet.

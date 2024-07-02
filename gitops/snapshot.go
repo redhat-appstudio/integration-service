@@ -83,9 +83,6 @@ const (
 	// SnapshotComponentType is the type of Snapshot which was created for a single component build.
 	SnapshotComponentType = "component"
 
-	// SnapshotCompositeType is the type of Snapshot which was created for multiple components.
-	SnapshotCompositeType = "composite"
-
 	// SnapshotOverrideType is the type of Snapshot which was created for override Global Candidate List.
 	SnapshotOverrideType = "override"
 
@@ -823,8 +820,8 @@ func ResetSnapshotStatusConditions(ctx context.Context, adapterClient client.Cli
 }
 
 // CopySnapshotLabelsAndAnnotation coppies labels and annotations from build pipelineRun or tested snapshot
-// into regular or composite snapshot
-func CopySnapshotLabelsAndAnnotation(application *applicationapiv1alpha1.Application, snapshot *applicationapiv1alpha1.Snapshot, componentName string, source *metav1.ObjectMeta, prefix string, isComposite bool) {
+// into regular snapshot
+func CopySnapshotLabelsAndAnnotation(application *applicationapiv1alpha1.Application, snapshot *applicationapiv1alpha1.Snapshot, componentName string, source *metav1.ObjectMeta, prefix string) {
 
 	if snapshot.Labels == nil {
 		snapshot.Labels = map[string]string{}
@@ -833,11 +830,7 @@ func CopySnapshotLabelsAndAnnotation(application *applicationapiv1alpha1.Applica
 	if snapshot.Annotations == nil {
 		snapshot.Annotations = map[string]string{}
 	}
-	if !isComposite {
-		snapshot.Labels[SnapshotTypeLabel] = SnapshotComponentType
-	} else {
-		snapshot.Labels[SnapshotTypeLabel] = SnapshotCompositeType
-	}
+	snapshot.Labels[SnapshotTypeLabel] = SnapshotComponentType
 
 	snapshot.Labels[SnapshotComponentLabel] = componentName
 	snapshot.Labels[ApplicationNameLabel] = application.Name
